@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"github.com/spf13/pflag"
+	"net"
 	"reflect"
 	"strings"
+	"time"
 	"unsafe"
 )
 
@@ -160,6 +162,22 @@ func (descr *CommandDescription) Execute(ctx context.Context, args... string) (f
 		return descr, true, nil
 	}
 
+	if descr.CommandRoute != nil {
+		sub, rem, err := descr.CommandRoute.Get(ctx, args...)
+		if err != nil {
+			return nil, false, err
+		}
+		if sub != nil {
+			subCmd, err := Load(sub)
+			if err != nil {
+				return nil, false, err
+			}
+			return subCmd.Execute(ctx, rem...)
+		}
+		// deal with it as regular command if it is not recognized as sub-command
+		args = rem
+	}
+
 	if err := descr.FlagsSet.Parse(args); err != nil && err != pflag.ErrHelp {
 		return descr, false, err
 	}
@@ -202,22 +220,8 @@ func (descr *CommandDescription) Execute(ctx context.Context, args... string) (f
 		remainingArgs = remainingArgs[len(remainingPositionalOptionalFlags):]
 	}
 
-	if descr.CommandRoute != nil {
-		sub, rem, err := descr.CommandRoute.Get(ctx, args...)
-		if err != nil {
-			return nil, false, err
-		}
-		if sub != nil {
-			subCmd, err := Load(sub)
-			if err != nil {
-				return nil, false, err
-			}
-			return subCmd.Execute(ctx, rem...)
-		}
-		// deal with it as regular command if it is not recognized as sub-command
-	}
 	if descr.Command != nil {
-		err := descr.Command.Run(ctx, args...)
+		err := descr.Command.Run(ctx, remainingArgs...)
 		return descr, false, err
 	}
 	return descr, false, nil
@@ -228,6 +232,13 @@ func getAsk(f *reflect.StructField) (v string, ok bool) {
 }
 
 var pflagValueType = reflect.TypeOf((*pflag.Value)(nil)).Elem()
+
+
+var durationType = reflect.TypeOf(time.Second)
+var ipType = reflect.TypeOf(net.IP{})
+var ipmaskType = reflect.TypeOf(net.IPMask{})
+var ipNetType = reflect.TypeOf(net.IPNet{})
+
 
 // Check the struct field, and add flag for it if asked for
 func (descr *CommandDescription) LoadField(f reflect.StructField, val reflect.Value) (requiredArg, optionalArg string, err error) {
@@ -280,6 +291,7 @@ func (descr *CommandDescription) LoadField(f reflect.StructField, val reflect.Va
 		optionalArg = name
 	}
 
+
 	// Declare that the field can be parsed
 	ok = true
 
@@ -302,10 +314,57 @@ func (descr *CommandDescription) LoadField(f reflect.StructField, val reflect.Va
 		})
 		return
 	}
+
+	if f.Type == durationType {
+		flags.DurationVarP((*time.Duration)(ptr), name, shorthand, time.Duration(val.Int()), help)
+	} else if f.Type == ipType {
+		flags.IPVarP((*net.IP)(ptr), name, shorthand, net.IP(val.Bytes()), help)
+	} else if f.Type == ipNetType {
+		flags.IPNetVarP((*net.IPNet)(ptr), name, shorthand, val.Interface().(net.IPNet), help)
+	} else if f.Type == ipmaskType {
+		flags.IPMaskVarP((*net.IPMask)(ptr), name, shorthand, val.Interface().(net.IPMask), help)
+	}
+
 	switch f.Type.Kind() {
+	// unsigned integers
+	case reflect.Uint:
+		flags.UintVarP((*uint)(ptr), name, shorthand, uint(val.Uint()), help)
 	case reflect.Uint8:
 		flags.Uint8VarP((*uint8)(ptr), name, shorthand, uint8(val.Uint()), help)
+	case reflect.Uint16:
+		flags.Uint16VarP((*uint16)(ptr), name, shorthand, uint16(val.Uint()), help)
+	case reflect.Uint32:
+		flags.Uint32VarP((*uint32)(ptr), name, shorthand, uint32(val.Uint()), help)
+	case reflect.Uint64:
+		flags.Uint64VarP((*uint64)(ptr), name, shorthand, val.Uint(), help)
+	// signed integers
+	case reflect.Int:
+		flags.IntVarP((*int)(ptr), name, shorthand, int(val.Int()), help)
+	case reflect.Int8:
+		flags.Int8VarP((*int8)(ptr), name, shorthand, int8(val.Int()), help)
+	case reflect.Int16:
+		flags.Int16VarP((*int16)(ptr), name, shorthand, int16(val.Int()), help)
+	case reflect.Int32:
+		flags.Int32VarP((*int32)(ptr), name, shorthand, int32(val.Int()), help)
+	case reflect.Int64:
+		flags.Int64VarP((*int64)(ptr), name, shorthand, val.Int(), help)
+	// Misc
+	case reflect.String:
+		flags.StringVarP((*string)(ptr), name, shorthand, val.String(), help)
+	case reflect.Bool:
+		flags.BoolVarP((*bool)(ptr), name, shorthand, val.Bool(), help)
+	case reflect.Float32:
+		flags.Float32VarP((*float32)(ptr), name, shorthand, float32(val.Float()), help)
+	case reflect.Float64:
+		flags.Float64VarP((*float64)(ptr), name, shorthand, val.Float(), help)
+	// Cobra commons
+	case reflect.Slice:
+		elemTyp := f.Type.Elem()
+		switch elemTyp.Kind() {
+			// TODO: switch on all slice versions of the above.
+		}
 	default:
+		// TODO: more flag types?
 		return "", "", fmt.Errorf("unrecognized type: %v", f.Type.String())
 	}
 	if deprecated != "" {

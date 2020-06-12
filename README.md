@@ -6,6 +6,34 @@ This makes it suitable for shell applications, and CLIs with dynamic commands or
 It has minimal dependencies: only [`github.com/spf13/pflag`](https://github.com/spf13/pflag)
  for excellent and familiar flag parsing (Cobra CLI is powered with these flags).
 
+Warning: this is a new experimental package, built to improve the [`Rumor`](https://github.com/protolambda/rumor) shell.
+
+
+## Usage
+
+```go
+// load a command struct
+cmd, err := Load(MyCommandStruct{})
+
+// Execute a command
+cmd, isHelp, err := cmd.Execute(context.Background(), "some", "args", "--here", "use", "a", "shell", "parser")
+```
+
+Thanks to `pflag`, all basic types, slices (well, work in progress), and some misc network types are supported for flags.
+
+You can also implement the `pflag.Value` interface for custom flag parsing. 
+
+To define a command, implement `Command` and/or `RouteCommand`:
+
+`func (c *Command) Run(ctx context.Context, args ...string) error { ... }`
+
+`func (c *MyHubCommand) Get(ctx context.Context, args ...string) (cmd interface{}, remaining []string, err error) { ... }`
+
+For additional help information, a command can also implement `Help`:
+
+`func (c Connect) Help() string { ... }`
+
+
 ## Example
 
 ```go
@@ -70,7 +98,7 @@ func main() {
 	// Execute returns the final command that is executed,
 	// to get the subcommands in case usage needs to be printed, or other result data is required.
     cmd, isHelp, err := cmd.Execute(context.Background(),
-	    strings.Split("connect --addr 1.2.3.4 --port=4000 --tag=123hey 42 someid optionalhere", " ")...)
+	    strings.Split("connect --addr 1.2.3.4 --port=4000 --tag=123hey 42 someid optionalhere extra more", " ")...)
     // handle err
     if err == nil {
         panic(err)
@@ -81,7 +109,7 @@ func main() {
 	}
 
     // use resulting state change
-	// state.HostData == "1.2.3.4:4000 #123hey $42 someid ~ optionalhere"
+	// state.HostData == "1.2.3.4:4000 #123hey $42 someid ~ optionalhere, remaining: extra, more"
 }
 ```
 

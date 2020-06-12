@@ -41,7 +41,7 @@ func (c Connect) Help() string {
 }
 
 func (c *Connect) Run(ctx context.Context, args ...string) error {
-	c.State.HostData = fmt.Sprintf("addr: %s:%d #%s $%d %s ~ %s, remaining: %s",
+	c.State.HostData = fmt.Sprintf("%s:%d #%s $%d %s ~ %s, remaining: %s",
 		c.Addr.String(), c.Port, c.Tag, c.Data, c.PeerID, c.More, strings.Join(args, ", "))
 	return nil
 }
@@ -77,14 +77,14 @@ func TestPeerConnect(t *testing.T) {
 	// Execute returns the final command that is executed,
 	// to get the subcommands in case usage needs to be printed, or other result data is required.
 	if cmd, isHelp, err := cmd.Execute(context.Background(),
-		strings.Split("connect --addr 1.2.3.4 --port=4000 --tag=123hey 42 someid optionalhere", " ")...); err != nil {
+		strings.Split("connect --addr 1.2.3.4 --port=4000 --tag=123hey 42 someid optionalhere extra more", " ")...); err != nil {
 		t.Fatal(err)
 	} else if isHelp {
 		// print usage if the user asks --help
 		t.Log(cmd.Usage("connect"))
 	}
 
-	if state.HostData != "1.2.3.4:4000 #123hey $42 someid ~ optionalhere" {
+	if state.HostData != "1.2.3.4:4000 #123hey $42 someid ~ optionalhere, remaining: extra, more" {
 		t.Errorf("got unexpected host data value: %s", state.HostData)
 	}
 }
