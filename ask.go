@@ -157,7 +157,7 @@ func (descr *CommandDescription) Usage(name string) string {
 // To add inputs/outputs such as STDOUT to a command, they can be added as field in the command struct definition,
 // and the command can pass them on to sub-commands. Similarly logging and other misc. data can be passed around.
 // The execute parameters are kept minimal.
-func (descr *CommandDescription) Execute(ctx context.Context, args... string) (final *CommandDescription, isHelp bool, err error) {
+func (descr *CommandDescription) Execute(ctx context.Context, args ...string) (final *CommandDescription, isHelp bool, err error) {
 	if len(args) > 0 && (args[0] == "--help" || args[0] == "-h" || args[0] == "help") {
 		return descr, true, nil
 	}
@@ -233,12 +233,10 @@ func getAsk(f *reflect.StructField) (v string, ok bool) {
 
 var pflagValueType = reflect.TypeOf((*pflag.Value)(nil)).Elem()
 
-
 var durationType = reflect.TypeOf(time.Second)
 var ipType = reflect.TypeOf(net.IP{})
 var ipmaskType = reflect.TypeOf(net.IPMask{})
 var ipNetType = reflect.TypeOf(net.IPNet{})
-
 
 // Check the struct field, and add flag for it if asked for
 func (descr *CommandDescription) LoadField(f reflect.StructField, val reflect.Value) (requiredArg, optionalArg string, err error) {
@@ -290,7 +288,6 @@ func (descr *CommandDescription) LoadField(f reflect.StructField, val reflect.Va
 		name = v[1 : len(v)-1]
 		optionalArg = name
 	}
-
 
 	// Declare that the field can be parsed
 	ok = true
@@ -361,7 +358,7 @@ func (descr *CommandDescription) LoadField(f reflect.StructField, val reflect.Va
 	case reflect.Slice:
 		elemTyp := f.Type.Elem()
 		switch elemTyp.Kind() {
-			// TODO: switch on all slice versions of the above.
+		// TODO: switch on all slice versions of the above.
 		}
 	default:
 		// TODO: more flag types?
