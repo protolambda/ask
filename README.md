@@ -8,6 +8,7 @@ It has minimal dependencies: only [`github.com/spf13/pflag`](https://github.com/
 
 Warning: this is a new experimental package, built to improve the [`Rumor`](https://github.com/protolambda/rumor) shell.
 
+Note: flags in between command parts, e.g. `peer --foobar connect ` are not supported, but may be in the future.
 
 ## Usage
 
@@ -23,16 +24,22 @@ Thanks to `pflag`, all basic types, slices (well, work in progress), and some mi
 
 You can also implement the `pflag.Value` interface for custom flag parsing. 
 
-To define a command, implement `Command` and/or `RouteCommand`:
+To define a command, implement `Command` and/or `CommandRoute`:
 
 `func (c *Command) Run(ctx context.Context, args ...string) error { ... }`
 
-`func (c *MyHubCommand) Get(ctx context.Context, args ...string) (cmd interface{}, remaining []string, err error) { ... }`
+`Cmd(route string) (cmd interface{}, err error)`
+
+To hint at sub-command routes, implement `CommandKnownRoutes`:
+
+`Routes() []string`
 
 For additional help information, a command can also implement `Help`:
 
 `func (c Connect) Help() string { ... }`
 
+The help information, along usage info (flag set info + default values + sub commands list) can 
+be retrieved from `.Usage()` after `Load()`-ing the command.
 
 ## Example
 
@@ -48,48 +55,54 @@ import (
 )
 
 type ActorState struct {
-    HostData string
+	HostData string
 }
 
 type Peer struct {
-    State *ActorState
+	*ActorState
 }
 
-func (c *Peer) Get(ctx context.Context, args ...string) (cmd interface{}, remaining []string, err error) {
-    switch args[0] {
-    case "connect":
-        return &Connect{Parent: c, State: c.State}, args[1:], nil
-    default:
-        return nil, args, NotRecognizedErr
-    }
+func (c *Peer) Cmd(route string) (cmd interface{}, err error) {
+	switch route {
+	case "connect":
+		return &Connect{ActorState: c.ActorState}, nil
+	default:
+		return nil, NotRecognizedErr
+	}
+}
+
+func (c *Peer) Routes() []string {
+	return []string{"connect"}
 }
 
 type Connect struct {
-    Parent *Peer
-    State  *ActorState
-    Addr   net.IP `ask:"--addr" help:"address to connect to"`
-    Port   uint16 `ask:"--port" help:"port to use for connection"`
-    Tag    string `ask:"--tag" help:"tag to give to peer"`
-    Data   uint8  `ask:"<data>" help:"some number"`
-    PeerID string `ask:"<id>" help:"libp2p ID of the peer, if no address is specified, the peer is looked up in the peerstore"`
-    More   string `ask:"[more]" help:"optional"`
+    // Do not embed the parent command, or Connect will be recognized as a command route.
+    // If recursive commands are desired, the command route can return a nil command
+	// if the command itself should be evaluated as a normal command instead.
+	*ActorState
+	Addr   net.IP `ask:"--addr" help:"address to connect to"`
+	Port   uint16 `ask:"--port" help:"port to use for connection"`
+	Tag    string `ask:"--tag" help:"tag to give to peer"`
+	Data   uint8  `ask:"<data>" help:"some number"`
+	PeerID string `ask:"<id>" help:"libp2p ID of the peer, if no address is specified, the peer is looked up in the peerstore"`
+	More   string `ask:"[more]" help:"optional"`
 }
 
 func (c Connect) Help() string {
-    return "connect to a peer"
+	return "connect to a peer"
 }
 
 func (c *Connect) Run(ctx context.Context, args ...string) error {
-    c.State.HostData = fmt.Sprintf("addr: %s:%d #%s $%d %s ~ %s, remaining: %s",
-        c.Addr.String(), c.Port, c.Tag, c.Data, c.PeerID, c.More, strings.Join(args, ", "))
-    return nil
+	c.HostData = fmt.Sprintf("%s:%d #%s $%d %s ~ %s, remaining: %s",
+		c.Addr.String(), c.Port, c.Tag, c.Data, c.PeerID, c.More, strings.Join(args, ", "))
+	return nil
 }
 
 func main() {
     state := ActorState{
         HostData: "old value",
     }
-    defaultPeer := Peer{State: &state}
+	defaultPeer := Peer{ActorState: &state}
     cmd, err := Load(&defaultPeer)
     if err != nil {
         t.Fatal(err)

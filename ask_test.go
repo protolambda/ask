@@ -13,21 +13,24 @@ type ActorState struct {
 }
 
 type Peer struct {
-	State *ActorState
+	*ActorState
 }
 
-func (c *Peer) Get(ctx context.Context, args ...string) (cmd interface{}, remaining []string, err error) {
-	switch args[0] {
+func (c *Peer) Cmd(route string) (cmd interface{}, err error) {
+	switch route {
 	case "connect":
-		return &Connect{Parent: c, State: c.State}, args[1:], nil
+		return &Connect{ActorState: c.ActorState}, nil
 	default:
-		return nil, args, NotRecognizedErr
+		return nil, NotRecognizedErr
 	}
 }
 
+func (c *Peer) Routes() []string {
+	return []string{"connect"}
+}
+
 type Connect struct {
-	Parent *Peer
-	State  *ActorState
+	*ActorState
 	Addr   net.IP `ask:"--addr" help:"address to connect to"`
 	Port   uint16 `ask:"--port" help:"port to use for connection"`
 	Tag    string `ask:"--tag" help:"tag to give to peer"`
@@ -41,7 +44,7 @@ func (c Connect) Help() string {
 }
 
 func (c *Connect) Run(ctx context.Context, args ...string) error {
-	c.State.HostData = fmt.Sprintf("%s:%d #%s $%d %s ~ %s, remaining: %s",
+	c.HostData = fmt.Sprintf("%s:%d #%s $%d %s ~ %s, remaining: %s",
 		c.Addr.String(), c.Port, c.Tag, c.Data, c.PeerID, c.More, strings.Join(args, ", "))
 	return nil
 }
@@ -50,7 +53,7 @@ func TestPeerConnect(t *testing.T) {
 	state := ActorState{
 		HostData: "old value",
 	}
-	defaultPeer := Peer{State: &state}
+	defaultPeer := Peer{ActorState: &state}
 	cmd, err := Load(&defaultPeer)
 	if err != nil {
 		t.Fatal(err)
@@ -60,13 +63,21 @@ func TestPeerConnect(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	usage := cmd.Usage("peer")
+	if !strings.HasPrefix(usage, "peer\n\nSub commands:\n") {
+		t.Fatal("expected usage string starting with sub command header info")
+	}
+	if !strings.Contains(usage, "connect to a peer") {
+		t.Fatal("expected usage string with connect sub command")
+	}
+
 	if cmd, isHelp, err := cmd.Execute(context.Background(), "connect", "--help"); err != nil {
 		t.Fatal(err)
 	} else if !isHelp {
 		t.Fatal("expected help")
 	} else {
 		usage := cmd.Usage("connect")
-		if !strings.HasPrefix(usage, "connect [flags...] <data> <id> [more]") {
+		if !strings.HasPrefix(usage, "connect <data> <id> [more]") {
 			t.Fatal("expected usage string starting with command usage info")
 		}
 		if !strings.Contains(usage, "Flags/args") {
@@ -76,12 +87,9 @@ func TestPeerConnect(t *testing.T) {
 
 	// Execute returns the final command that is executed,
 	// to get the subcommands in case usage needs to be printed, or other result data is required.
-	if cmd, isHelp, err := cmd.Execute(context.Background(),
+	if _, _, err := cmd.Execute(context.Background(),
 		strings.Split("connect --addr 1.2.3.4 --port=4000 --tag=123hey 42 someid optionalhere extra more", " ")...); err != nil {
 		t.Fatal(err)
-	} else if isHelp {
-		// print usage if the user asks --help
-		t.Log(cmd.Usage("connect"))
 	}
 
 	if state.HostData != "1.2.3.4:4000 #123hey $42 someid ~ optionalhere, remaining: extra, more" {

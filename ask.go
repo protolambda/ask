@@ -23,10 +23,17 @@ type Command interface {
 var commandType = reflect.TypeOf((*Command)(nil)).Elem()
 
 type CommandRoute interface {
-	// Get a subcommand, which can be a Command or CommandRoute
-	// The remaining arguments are passed to the subcommand on execution
-	// The command that is returned will be loaded with `Load` before it runs
-	Get(ctx context.Context, args ...string) (cmd interface{}, remaining []string, err error)
+	// Cmd gets a sub-command, which can be a Command or CommandRoute
+	// The command that is returned will be loaded with `Load` before it runs or its subcommand is retrieved.
+	// Return nil if the command route should be ignored, e.g. if this route is also a regular command with arguments.
+	Cmd(route string) (cmd interface{}, err error)
+}
+
+// CommandKnownRoutes may be implemented by a CommandRoute to declare which routes are accessible,
+// useful for e.g. help messages to give more information for each of the subcommands.
+type CommandKnownRoutes interface {
+	// Routes lists the sub-commands that can be asked from Get.
+	Routes() []string
 }
 
 var commandRouteType = reflect.TypeOf((*CommandRoute)(nil)).Elem()
@@ -38,9 +45,10 @@ type Help interface {
 	Help() string
 }
 
+var helpType = reflect.TypeOf((*Help)(nil)).Elem()
+
 // An interface{} can be loaded as a command-description to execute it. See Load()
 type CommandDescription struct {
-	Help     string
 	FlagsSet *pflag.FlagSet
 	// Flags that can be passed as positional required args
 	RequiredArgs []string
@@ -50,6 +58,8 @@ type CommandDescription struct {
 	Command
 	// Sub-command routing, can create commands (or other sub-commands) to access, may be nil if no sub-commands
 	CommandRoute
+	// Help Information as provided by the Help interface
+	HelpInfo Help
 }
 
 // Load takes a structure instance that defines a command through its type,
@@ -67,8 +77,9 @@ func LoadReflect(val reflect.Value) (*CommandDescription, error) {
 }
 
 // Load adds more flags/args/meta to the command description.
-// It recursively goes into the field if it's tagged with `ask:"."`, or if it's an embedded field. (recurse depth-first)
-// It skips the field explicitly if it's tagged with `ask:"-"` (used to ignore embedded fields)
+// It recursively goes into the field if it's tagged with `ask:"."` (recurse depth-first).
+// Embedded fields are handled as regular fields unless explicitly squashed.
+// It skips the field explicitly if it's tagged with `ask:"-"`
 // Multiple target values can be loaded if they do not conflict, the first Command and CommandRoute found will be used.
 // The flags will be set over all loaded values.
 func (descr *CommandDescription) Load(val interface{}) error {
@@ -84,6 +95,9 @@ func (descr *CommandDescription) LoadReflect(val reflect.Value) error {
 	if descr.CommandRoute == nil && typ.Implements(commandRouteType) {
 		descr.CommandRoute = val.Interface().(CommandRoute)
 	}
+	if descr.HelpInfo == nil && typ.Implements(helpType) {
+		descr.HelpInfo = val.Interface().(Help)
+	}
 	switch val.Kind() {
 	case reflect.Struct:
 		fieldCount := val.NumField()
@@ -95,8 +109,8 @@ func (descr *CommandDescription) LoadReflect(val reflect.Value) error {
 				continue
 			}
 			v := val.Field(i)
-			// recurse into explicitly squashed or embedded fields
-			if tag == "." || f.Anonymous {
+			// recurse into explicitly squashed fields
+			if tag == "." {
 				if err := descr.Load(v); err != nil {
 					return err
 				}
@@ -121,7 +135,9 @@ func (descr *CommandDescription) LoadReflect(val reflect.Value) error {
 		}
 		return descr.LoadReflect(val.Elem())
 	default:
-		return InvalidCmdTypeErr
+		// Other types will be ignored.
+		// E.g. you can have a function type as command, and just not load any flags.
+		return nil
 	}
 }
 
@@ -129,7 +145,6 @@ func (descr *CommandDescription) LoadReflect(val reflect.Value) error {
 func (descr *CommandDescription) Usage(name string) string {
 	var out strings.Builder
 	out.WriteString(name)
-	out.WriteString(" [flags...]")
 	if len(descr.RequiredArgs) > 0 {
 		for _, a := range descr.RequiredArgs {
 			out.WriteString(" <")
@@ -144,9 +159,44 @@ func (descr *CommandDescription) Usage(name string) string {
 			out.WriteString("]")
 		}
 	}
-	out.WriteString("\n\nFlags/args:\n")
-	out.WriteString(descr.FlagsSet.FlagUsages())
-	out.WriteString("\n")
+	out.WriteString("\n\n")
+	if descr.FlagsSet.HasFlags() {
+		out.WriteString("Flags/args:\n")
+		out.WriteString(descr.FlagsSet.FlagUsages())
+		out.WriteString("\n")
+	}
+	if descr.CommandRoute != nil {
+		knownRoutes, ok := descr.CommandRoute.(CommandKnownRoutes)
+		if ok {
+			out.WriteString("Sub commands:\n")
+			for _, k := range knownRoutes.Routes() {
+				out.WriteString("  ")
+				out.WriteString(k)
+				if len(k) < 15 {
+					out.WriteString(strings.Repeat(" ", 17-len(k)))
+				} else {
+					out.WriteString("  ")
+				}
+				subCmd, err := descr.CommandRoute.Cmd(k)
+				if err != nil {
+					out.WriteString("[error] failed to load command route")
+				} else if subCmd == nil {
+					out.WriteString("[error] command route not available")
+				} else {
+					subDescr, err := Load(subCmd)
+					if err != nil {
+						out.WriteString("[error] command is invalid")
+					} else {
+						if subDescr.HelpInfo != nil {
+							out.WriteString(subDescr.HelpInfo.Help())
+						}
+						// no info in no help available but valid otherwise
+					}
+				}
+				out.WriteString("\n")
+			}
+		}
+	}
 
 	return out.String()
 }
@@ -162,8 +212,8 @@ func (descr *CommandDescription) Execute(ctx context.Context, args ...string) (f
 		return descr, true, nil
 	}
 
-	if descr.CommandRoute != nil {
-		sub, rem, err := descr.CommandRoute.Get(ctx, args...)
+	if descr.CommandRoute != nil && len(args) > 0 {
+		sub, err := descr.CommandRoute.Cmd(args[0])
 		if err != nil {
 			return nil, false, err
 		}
@@ -172,10 +222,9 @@ func (descr *CommandDescription) Execute(ctx context.Context, args ...string) (f
 			if err != nil {
 				return nil, false, err
 			}
-			return subCmd.Execute(ctx, rem...)
+			return subCmd.Execute(ctx, args[1:]...)
 		}
 		// deal with it as regular command if it is not recognized as sub-command
-		args = rem
 	}
 
 	if err := descr.FlagsSet.Parse(args); err != nil && err != pflag.ErrHelp {
@@ -224,7 +273,8 @@ func (descr *CommandDescription) Execute(ctx context.Context, args ...string) (f
 		err := descr.Command.Run(ctx, remainingArgs...)
 		return descr, false, err
 	}
-	return descr, false, nil
+
+	return descr, false, NotRecognizedErr
 }
 
 func getAsk(f *reflect.StructField) (v string, ok bool) {
