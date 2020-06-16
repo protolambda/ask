@@ -39,8 +39,12 @@ type Connect struct {
 	More   string `ask:"[more]" help:"optional"`
 }
 
-func (c Connect) Help() string {
+func (c *Connect) Help() string {
 	return "connect to a peer"
+}
+
+func (c *Connect) Default() {
+	c.Port = 9000
 }
 
 func (c *Connect) Run(ctx context.Context, args ...string) error {
@@ -83,16 +87,19 @@ func TestPeerConnect(t *testing.T) {
 		if !strings.Contains(usage, "Flags/args") {
 			t.Fatal("expected usage string with flags information")
 		}
+		if !strings.Contains(usage, "9000") {
+			t.Fatal("expected default to be included in help details")
+		}
 	}
 
 	// Execute returns the final command that is executed,
 	// to get the subcommands in case usage needs to be printed, or other result data is required.
 	if _, _, err := cmd.Execute(context.Background(),
-		strings.Split("connect --addr 1.2.3.4 --port=4000 --tag=123hey 42 someid optionalhere extra more", " ")...); err != nil {
+		strings.Split("connect --addr 1.2.3.4 --tag=123hey 42 someid optionalhere extra more", " ")...); err != nil {
 		t.Fatal(err)
 	}
 
-	if state.HostData != "1.2.3.4:4000 #123hey $42 someid ~ optionalhere, remaining: extra, more" {
+	if state.HostData != "1.2.3.4:9000 #123hey $42 someid ~ optionalhere, remaining: extra, more" {
 		t.Errorf("got unexpected host data value: %s", state.HostData)
 	}
 }

@@ -46,6 +46,16 @@ type Help interface {
 
 var helpType = reflect.TypeOf((*Help)(nil)).Elem()
 
+// InitDefault can be implemented by a command to not rely on the parent command initializing the command correctly,
+// and instead move the responsibility to the command itself.
+// The default is initialized during Load, and a command may embed multiple sub-structures that implement Default.
+type InitDefault interface {
+	// Default the flags of a command.
+	Default()
+}
+
+var initDefaultType = reflect.TypeOf((*InitDefault)(nil)).Elem()
+
 // An interface{} can be loaded as a command-description to execute it. See Load()
 type CommandDescription struct {
 	FlagsSet *pflag.FlagSet
@@ -58,7 +68,7 @@ type CommandDescription struct {
 	// Sub-command routing, can create commands (or other sub-commands) to access, may be nil if no sub-commands
 	CommandRoute
 	// Help Information as provided by the Help interface
-	HelpInfo Help
+	Help
 }
 
 // Load takes a structure instance that defines a command through its type,
@@ -94,8 +104,11 @@ func (descr *CommandDescription) LoadReflect(val reflect.Value) error {
 	if descr.CommandRoute == nil && typ.Implements(commandRouteType) {
 		descr.CommandRoute = val.Interface().(CommandRoute)
 	}
-	if descr.HelpInfo == nil && typ.Implements(helpType) {
-		descr.HelpInfo = val.Interface().(Help)
+	if descr.Help == nil && typ.Implements(helpType) {
+		descr.Help = val.Interface().(Help)
+	}
+	if typ.Implements(initDefaultType) {
+		val.Interface().(InitDefault).Default()
 	}
 	switch val.Kind() {
 	case reflect.Struct:
@@ -186,8 +199,8 @@ func (descr *CommandDescription) Usage(name string) string {
 					if err != nil {
 						out.WriteString("[error] command is invalid")
 					} else {
-						if subDescr.HelpInfo != nil {
-							out.WriteString(subDescr.HelpInfo.Help())
+						if subDescr.Help != nil {
+							out.WriteString(subDescr.Help.Help())
 						}
 						// no info in no help available but valid otherwise
 					}
