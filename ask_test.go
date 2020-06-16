@@ -21,7 +21,7 @@ func (c *Peer) Cmd(route string) (cmd interface{}, err error) {
 	case "connect":
 		return &Connect{ActorState: c.ActorState}, nil
 	default:
-		return nil, NotRecognizedErr
+		return nil, UnrecognizedErr
 	}
 }
 
@@ -59,7 +59,7 @@ func TestPeerConnect(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, _, err := cmd.Execute(context.Background(), "bad"); err != NotRecognizedErr {
+	if _, _, err := cmd.Execute(context.Background(), "bad"); err != UnrecognizedErr {
 		t.Fatal(err)
 	}
 

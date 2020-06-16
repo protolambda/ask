@@ -12,8 +12,7 @@ import (
 	"unsafe"
 )
 
-var NotRecognizedErr = errors.New("command was not recognized")
-var InvalidCmdTypeErr = errors.New("command type is not supported")
+var UnrecognizedErr = errors.New("command was not recognized")
 
 type Command interface {
 	// Run the command, with context and remaining unrecognized args
@@ -274,7 +273,7 @@ func (descr *CommandDescription) Execute(ctx context.Context, args ...string) (f
 		return descr, false, err
 	}
 
-	return descr, false, NotRecognizedErr
+	return descr, false, UnrecognizedErr
 }
 
 func getAsk(f *reflect.StructField) (v string, ok bool) {
