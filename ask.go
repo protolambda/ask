@@ -271,6 +271,7 @@ func (descr *CommandDescription) Execute(ctx context.Context, args ...string) (f
 
 	// process optional args
 	if len(remainingPositionalOptionalFlags) > 0 {
+		count := 0
 		for i := range remainingArgs {
 			if i >= len(remainingPositionalOptionalFlags) {
 				break
@@ -278,8 +279,9 @@ func (descr *CommandDescription) Execute(ctx context.Context, args ...string) (f
 			if err := descr.FlagsSet.Set(remainingPositionalOptionalFlags[i], remainingArgs[i]); err != nil {
 				return descr, false, err
 			}
+			count += 1
 		}
-		remainingArgs = remainingArgs[len(remainingPositionalOptionalFlags):]
+		remainingArgs = remainingArgs[count:]
 	}
 
 	if descr.Command != nil {
