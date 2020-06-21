@@ -2,6 +2,7 @@ package ask
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"github.com/spf13/pflag"
@@ -419,8 +420,75 @@ func (descr *CommandDescription) LoadField(f reflect.StructField, val reflect.Va
 	// Cobra commons
 	case reflect.Slice:
 		elemTyp := f.Type.Elem()
+		if elemTyp == durationType {
+			data := (*[]time.Duration)(ptr)
+			flags.DurationSliceVarP(data, name, shorthand, *data, help)
+		} else if elemTyp == ipType {
+			data := (*[]net.IP)(ptr)
+			flags.IPSliceVarP(data, name, shorthand, *data, help)
+		} else {
+			switch elemTyp.Kind() {
+			case reflect.Uint8:
+				b := (*[]byte)(ptr)
+				pVal := (*BytesHexFlag)(b)
+				flags.AddFlag(&pflag.Flag{
+					Name:       name,
+					Shorthand:  shorthand,
+					Usage:      help,
+					Value:      pVal,
+					DefValue:   pVal.String(),
+					Deprecated: deprecated,
+					Hidden:     hidden,
+				})
+			case reflect.Uint:
+				data := (*[]uint)(ptr)
+				flags.UintSliceVarP(data, name, shorthand, *data, help)
+			case reflect.Int:
+				data := (*[]int)(ptr)
+				flags.IntSliceVarP(data, name, shorthand, *data, help)
+			case reflect.Int32:
+				data := (*[]int32)(ptr)
+				flags.Int32SliceVarP(data, name, shorthand, *data, help)
+			case reflect.Int64:
+				data := (*[]int64)(ptr)
+				flags.Int64SliceVarP(data, name, shorthand, *data, help)
+			case reflect.Float32:
+				data := (*[]float32)(ptr)
+				flags.Float32SliceVarP(data, name, shorthand, *data, help)
+			case reflect.Float64:
+				data := (*[]float64)(ptr)
+				flags.Float64SliceVarP(data, name, shorthand, *data, help)
+			case reflect.String:
+				data := (*[]string)(ptr)
+				flags.StringSliceVarP(data, name, shorthand, *data, help)
+			case reflect.Bool:
+				data := (*[]bool)(ptr)
+				flags.BoolSliceVarP(data, name, shorthand, *data, help)
+			default:
+				return "", "", fmt.Errorf("unrecognized slice element type: %v", elemTyp.String())
+			}
+		}
+	case reflect.Array:
+		elemTyp := f.Type.Elem()
 		switch elemTyp.Kind() {
-		// TODO: switch on all slice versions of the above.
+		case reflect.Uint8:
+			expectedLen := val.Len()
+			destSlice := val.Slice(0, expectedLen).Bytes()
+			pVal := &fixedLenBytes{
+				Dest:           destSlice,
+				ExpectedLength: uint64(expectedLen),
+			}
+			flags.AddFlag(&pflag.Flag{
+				Name:       name,
+				Shorthand:  shorthand,
+				Usage:      help,
+				Value:      pVal,
+				DefValue:   pVal.String(),
+				Deprecated: deprecated,
+				Hidden:     hidden,
+			})
+		default:
+			return "", "", fmt.Errorf("unrecognized array element type: %v", elemTyp.String())
 		}
 	default:
 		// TODO: more flag types?
@@ -433,4 +501,63 @@ func (descr *CommandDescription) LoadField(f reflect.StructField, val reflect.Va
 		_ = flags.MarkHidden(name)
 	}
 	return
+}
+
+// BytesHex exposes bytes as a flag, hex-encoded,
+// optional whitespace padding, case insensitive, and optional 0x prefix.
+type BytesHexFlag []byte
+
+func (f BytesHexFlag) String() string {
+	return hex.EncodeToString(f)
+}
+
+func (f *BytesHexFlag) Set(value string) error {
+	value = strings.TrimSpace(value)
+	value = strings.ToLower(value)
+	if strings.HasPrefix(value, "0x") {
+		value = value[2:]
+	}
+	b, err := hex.DecodeString(value)
+	if err != nil {
+		return err
+	}
+	*f = b
+	return nil
+}
+
+func (f *BytesHexFlag) Type() string {
+	return "bytes"
+}
+
+// fixedLenBytes exposes fixed-length bytes as a flag, hex-encoded,
+// optional whitespace padding, case insensitive, and optional 0x prefix.
+type fixedLenBytes struct {
+	Dest           []byte
+	ExpectedLength uint64
+}
+
+func (f fixedLenBytes) String() string {
+	return hex.EncodeToString(f.Dest)
+}
+
+func (f *fixedLenBytes) Set(value string) error {
+	value = strings.TrimSpace(value)
+	value = strings.ToLower(value)
+	if strings.HasPrefix(value, "0x") {
+		value = value[2:]
+	}
+	b, err := hex.DecodeString(value)
+	if err != nil {
+		return err
+	}
+	if uint64(len(b)) != f.ExpectedLength {
+		return fmt.Errorf("byte length does not match fixed-length of %d bytes, "+
+			"parsed %d bytes", f.ExpectedLength, len(b))
+	}
+	copy(f.Dest, b)
+	return nil
+}
+
+func (f *fixedLenBytes) Type() string {
+	return fmt.Sprintf("bytes%d", f.ExpectedLength)
 }
