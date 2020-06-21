@@ -155,9 +155,8 @@ func (descr *CommandDescription) LoadReflect(val reflect.Value) error {
 }
 
 // Usage prints the help information and the usage of all flags.
-func (descr *CommandDescription) Usage(name string) string {
+func (descr *CommandDescription) Usage() string {
 	var out strings.Builder
-	out.WriteString(name)
 	if len(descr.RequiredArgs) > 0 {
 		for _, a := range descr.RequiredArgs {
 			out.WriteString(" <")
@@ -377,6 +376,15 @@ func AddFlag(flags *pflag.FlagSet, typ reflect.Type, val reflect.Value, name str
 	// Create the right pflag based on the type
 	if typ.Implements(pflagValueType) {
 		pVal := val.Interface().(pflag.Value)
+		flags.AddFlag(&pflag.Flag{
+			Name:      name,
+			Shorthand: shorthand,
+			Usage:     help,
+			Value:     pVal,
+			DefValue:  pVal.String(),
+		})
+	} else if reflect.PtrTo(typ).Implements(pflagValueType) {
+		pVal := val.Addr().Interface().(pflag.Value)
 		flags.AddFlag(&pflag.Flag{
 			Name:      name,
 			Shorthand: shorthand,
