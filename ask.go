@@ -355,145 +355,12 @@ func (descr *CommandDescription) LoadField(f reflect.StructField, val reflect.Va
 	// Declare that the field can be parsed
 	ok = true
 
-	// Get the pointer to the destination struct, to route pflags to
-	ptr := unsafe.Pointer(val.Addr().Pointer())
-
 	flags := descr.FlagsSet
 
-	// Create the right pflag based on the type
-	if f.Type.Implements(pflagValueType) {
-		pVal := val.Interface().(pflag.Value)
-		flags.AddFlag(&pflag.Flag{
-			Name:       name,
-			Shorthand:  shorthand,
-			Usage:      help,
-			Value:      pVal,
-			DefValue:   pVal.String(),
-			Deprecated: deprecated,
-			Hidden:     hidden,
-		})
-		return
+	if err := AddFlag(flags, f.Type, val, name, shorthand, help); err != nil {
+		return "", "", err
 	}
 
-	if f.Type == durationType {
-		flags.DurationVarP((*time.Duration)(ptr), name, shorthand, time.Duration(val.Int()), help)
-	} else if f.Type == ipType {
-		flags.IPVarP((*net.IP)(ptr), name, shorthand, net.IP(val.Bytes()), help)
-	} else if f.Type == ipNetType {
-		flags.IPNetVarP((*net.IPNet)(ptr), name, shorthand, val.Interface().(net.IPNet), help)
-	} else if f.Type == ipmaskType {
-		flags.IPMaskVarP((*net.IPMask)(ptr), name, shorthand, val.Interface().(net.IPMask), help)
-	}
-
-	switch f.Type.Kind() {
-	// unsigned integers
-	case reflect.Uint:
-		flags.UintVarP((*uint)(ptr), name, shorthand, uint(val.Uint()), help)
-	case reflect.Uint8:
-		flags.Uint8VarP((*uint8)(ptr), name, shorthand, uint8(val.Uint()), help)
-	case reflect.Uint16:
-		flags.Uint16VarP((*uint16)(ptr), name, shorthand, uint16(val.Uint()), help)
-	case reflect.Uint32:
-		flags.Uint32VarP((*uint32)(ptr), name, shorthand, uint32(val.Uint()), help)
-	case reflect.Uint64:
-		flags.Uint64VarP((*uint64)(ptr), name, shorthand, val.Uint(), help)
-	// signed integers
-	case reflect.Int:
-		flags.IntVarP((*int)(ptr), name, shorthand, int(val.Int()), help)
-	case reflect.Int8:
-		flags.Int8VarP((*int8)(ptr), name, shorthand, int8(val.Int()), help)
-	case reflect.Int16:
-		flags.Int16VarP((*int16)(ptr), name, shorthand, int16(val.Int()), help)
-	case reflect.Int32:
-		flags.Int32VarP((*int32)(ptr), name, shorthand, int32(val.Int()), help)
-	case reflect.Int64:
-		flags.Int64VarP((*int64)(ptr), name, shorthand, val.Int(), help)
-	// Misc
-	case reflect.String:
-		flags.StringVarP((*string)(ptr), name, shorthand, val.String(), help)
-	case reflect.Bool:
-		flags.BoolVarP((*bool)(ptr), name, shorthand, val.Bool(), help)
-	case reflect.Float32:
-		flags.Float32VarP((*float32)(ptr), name, shorthand, float32(val.Float()), help)
-	case reflect.Float64:
-		flags.Float64VarP((*float64)(ptr), name, shorthand, val.Float(), help)
-	// Cobra commons
-	case reflect.Slice:
-		elemTyp := f.Type.Elem()
-		if elemTyp == durationType {
-			data := (*[]time.Duration)(ptr)
-			flags.DurationSliceVarP(data, name, shorthand, *data, help)
-		} else if elemTyp == ipType {
-			data := (*[]net.IP)(ptr)
-			flags.IPSliceVarP(data, name, shorthand, *data, help)
-		} else {
-			switch elemTyp.Kind() {
-			case reflect.Uint8:
-				b := (*[]byte)(ptr)
-				pVal := (*BytesHexFlag)(b)
-				flags.AddFlag(&pflag.Flag{
-					Name:       name,
-					Shorthand:  shorthand,
-					Usage:      help,
-					Value:      pVal,
-					DefValue:   pVal.String(),
-					Deprecated: deprecated,
-					Hidden:     hidden,
-				})
-			case reflect.Uint:
-				data := (*[]uint)(ptr)
-				flags.UintSliceVarP(data, name, shorthand, *data, help)
-			case reflect.Int:
-				data := (*[]int)(ptr)
-				flags.IntSliceVarP(data, name, shorthand, *data, help)
-			case reflect.Int32:
-				data := (*[]int32)(ptr)
-				flags.Int32SliceVarP(data, name, shorthand, *data, help)
-			case reflect.Int64:
-				data := (*[]int64)(ptr)
-				flags.Int64SliceVarP(data, name, shorthand, *data, help)
-			case reflect.Float32:
-				data := (*[]float32)(ptr)
-				flags.Float32SliceVarP(data, name, shorthand, *data, help)
-			case reflect.Float64:
-				data := (*[]float64)(ptr)
-				flags.Float64SliceVarP(data, name, shorthand, *data, help)
-			case reflect.String:
-				data := (*[]string)(ptr)
-				flags.StringSliceVarP(data, name, shorthand, *data, help)
-			case reflect.Bool:
-				data := (*[]bool)(ptr)
-				flags.BoolSliceVarP(data, name, shorthand, *data, help)
-			default:
-				return "", "", fmt.Errorf("unrecognized slice element type: %v", elemTyp.String())
-			}
-		}
-	case reflect.Array:
-		elemTyp := f.Type.Elem()
-		switch elemTyp.Kind() {
-		case reflect.Uint8:
-			expectedLen := val.Len()
-			destSlice := val.Slice(0, expectedLen).Bytes()
-			pVal := &fixedLenBytes{
-				Dest:           destSlice,
-				ExpectedLength: uint64(expectedLen),
-			}
-			flags.AddFlag(&pflag.Flag{
-				Name:       name,
-				Shorthand:  shorthand,
-				Usage:      help,
-				Value:      pVal,
-				DefValue:   pVal.String(),
-				Deprecated: deprecated,
-				Hidden:     hidden,
-			})
-		default:
-			return "", "", fmt.Errorf("unrecognized array element type: %v", elemTyp.String())
-		}
-	default:
-		// TODO: more flag types?
-		return "", "", fmt.Errorf("unrecognized type: %v", f.Type.String())
-	}
 	if deprecated != "" {
 		_ = flags.MarkDeprecated(name, deprecated)
 	}
@@ -501,6 +368,146 @@ func (descr *CommandDescription) LoadField(f reflect.StructField, val reflect.Va
 		_ = flags.MarkHidden(name)
 	}
 	return
+}
+
+func AddFlag(flags *pflag.FlagSet, typ reflect.Type, val reflect.Value, name string, shorthand string, help string) error {
+	// Get the pointer to the destination struct, to route pflags to
+	ptr := unsafe.Pointer(val.Addr().Pointer())
+
+	// Create the right pflag based on the type
+	if typ.Implements(pflagValueType) {
+		pVal := val.Interface().(pflag.Value)
+		flags.AddFlag(&pflag.Flag{
+			Name:      name,
+			Shorthand: shorthand,
+			Usage:     help,
+			Value:     pVal,
+			DefValue:  pVal.String(),
+		})
+	} else if typ == durationType {
+		flags.DurationVarP((*time.Duration)(ptr), name, shorthand, time.Duration(val.Int()), help)
+	} else if typ == ipType {
+		flags.IPVarP((*net.IP)(ptr), name, shorthand, net.IP(val.Bytes()), help)
+	} else if typ == ipNetType {
+		flags.IPNetVarP((*net.IPNet)(ptr), name, shorthand, val.Interface().(net.IPNet), help)
+	} else if typ == ipmaskType {
+		flags.IPMaskVarP((*net.IPMask)(ptr), name, shorthand, val.Interface().(net.IPMask), help)
+	} else {
+		switch typ.Kind() {
+		// unsigned integers
+		case reflect.Uint:
+			flags.UintVarP((*uint)(ptr), name, shorthand, uint(val.Uint()), help)
+		case reflect.Uint8:
+			flags.Uint8VarP((*uint8)(ptr), name, shorthand, uint8(val.Uint()), help)
+		case reflect.Uint16:
+			flags.Uint16VarP((*uint16)(ptr), name, shorthand, uint16(val.Uint()), help)
+		case reflect.Uint32:
+			flags.Uint32VarP((*uint32)(ptr), name, shorthand, uint32(val.Uint()), help)
+		case reflect.Uint64:
+			flags.Uint64VarP((*uint64)(ptr), name, shorthand, val.Uint(), help)
+		// signed integers
+		case reflect.Int:
+			flags.IntVarP((*int)(ptr), name, shorthand, int(val.Int()), help)
+		case reflect.Int8:
+			flags.Int8VarP((*int8)(ptr), name, shorthand, int8(val.Int()), help)
+		case reflect.Int16:
+			flags.Int16VarP((*int16)(ptr), name, shorthand, int16(val.Int()), help)
+		case reflect.Int32:
+			flags.Int32VarP((*int32)(ptr), name, shorthand, int32(val.Int()), help)
+		case reflect.Int64:
+			flags.Int64VarP((*int64)(ptr), name, shorthand, val.Int(), help)
+		// Misc
+		case reflect.String:
+			flags.StringVarP((*string)(ptr), name, shorthand, val.String(), help)
+		case reflect.Bool:
+			flags.BoolVarP((*bool)(ptr), name, shorthand, val.Bool(), help)
+		case reflect.Float32:
+			flags.Float32VarP((*float32)(ptr), name, shorthand, float32(val.Float()), help)
+		case reflect.Float64:
+			flags.Float64VarP((*float64)(ptr), name, shorthand, val.Float(), help)
+		// Cobra commons
+		case reflect.Slice:
+			elemTyp := typ.Elem()
+			if elemTyp == durationType {
+				data := (*[]time.Duration)(ptr)
+				flags.DurationSliceVarP(data, name, shorthand, *data, help)
+			} else if elemTyp == ipType {
+				data := (*[]net.IP)(ptr)
+				flags.IPSliceVarP(data, name, shorthand, *data, help)
+			} else {
+				switch elemTyp.Kind() {
+				case reflect.Uint8:
+					b := (*[]byte)(ptr)
+					pVal := (*BytesHexFlag)(b)
+					flags.AddFlag(&pflag.Flag{
+						Name:      name,
+						Shorthand: shorthand,
+						Usage:     help,
+						Value:     pVal,
+						DefValue:  pVal.String(),
+					})
+				case reflect.Uint:
+					data := (*[]uint)(ptr)
+					flags.UintSliceVarP(data, name, shorthand, *data, help)
+				case reflect.Int:
+					data := (*[]int)(ptr)
+					flags.IntSliceVarP(data, name, shorthand, *data, help)
+				case reflect.Int32:
+					data := (*[]int32)(ptr)
+					flags.Int32SliceVarP(data, name, shorthand, *data, help)
+				case reflect.Int64:
+					data := (*[]int64)(ptr)
+					flags.Int64SliceVarP(data, name, shorthand, *data, help)
+				case reflect.Float32:
+					data := (*[]float32)(ptr)
+					flags.Float32SliceVarP(data, name, shorthand, *data, help)
+				case reflect.Float64:
+					data := (*[]float64)(ptr)
+					flags.Float64SliceVarP(data, name, shorthand, *data, help)
+				case reflect.String:
+					data := (*[]string)(ptr)
+					flags.StringSliceVarP(data, name, shorthand, *data, help)
+				case reflect.Bool:
+					data := (*[]bool)(ptr)
+					flags.BoolSliceVarP(data, name, shorthand, *data, help)
+				default:
+					return fmt.Errorf("unrecognized slice element type: %v", elemTyp.String())
+				}
+			}
+		case reflect.Array:
+			elemTyp := typ.Elem()
+			switch elemTyp.Kind() {
+			case reflect.Uint8:
+				expectedLen := val.Len()
+				destSlice := val.Slice(0, expectedLen).Bytes()
+				pVal := &fixedLenBytes{
+					Dest:           destSlice,
+					ExpectedLength: uint64(expectedLen),
+				}
+				flags.AddFlag(&pflag.Flag{
+					Name:      name,
+					Shorthand: shorthand,
+					Usage:     help,
+					Value:     pVal,
+					DefValue:  pVal.String(),
+				})
+			default:
+				return fmt.Errorf("unrecognized array element type: %v", elemTyp.String())
+			}
+		case reflect.Ptr:
+			contentTyp := typ.Elem()
+			// allocate a destination value if it doesn't exist yet
+			if val.IsNil() {
+				val.Set(reflect.New(contentTyp))
+			}
+			// and recurse into the type
+			return AddFlag(flags, typ.Elem(), val.Elem(), name, shorthand, help)
+		default:
+			// TODO: more flag types?
+			return fmt.Errorf("unrecognized type: %v", typ.String())
+		}
+	}
+	return nil
 }
 
 // BytesHex exposes bytes as a flag, hex-encoded,
