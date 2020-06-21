@@ -126,7 +126,7 @@ func main() {
     }
     if isHelp {
         // print usage if the user asks --help
-        fmt.Println(cmd.Usage("connect"))
+        fmt.Println(cmd.Usage())
     }
 
     // use resulting state change

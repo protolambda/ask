@@ -67,8 +67,8 @@ func TestPeerConnect(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	usage := cmd.Usage("peer")
-	if !strings.HasPrefix(usage, "peer\n\nSub commands:\n") {
+	usage := cmd.Usage()
+	if !strings.HasPrefix(usage, "(command)\n\nSub commands:\n") {
 		t.Fatal("expected usage string starting with sub command header info")
 	}
 	if !strings.Contains(usage, "connect to a peer") {
@@ -80,8 +80,8 @@ func TestPeerConnect(t *testing.T) {
 	} else if !isHelp {
 		t.Fatal("expected help")
 	} else {
-		usage := cmd.Usage("connect")
-		if !strings.HasPrefix(usage, "connect <data> <id> [more]") {
+		usage := cmd.Usage()
+		if !strings.HasPrefix(usage, "(command) <data> <id> [more]") {
 			t.Fatal("expected usage string starting with command usage info")
 		}
 		if !strings.Contains(usage, "Flags/args") {

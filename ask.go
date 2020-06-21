@@ -157,6 +157,7 @@ func (descr *CommandDescription) LoadReflect(val reflect.Value) error {
 // Usage prints the help information and the usage of all flags.
 func (descr *CommandDescription) Usage() string {
 	var out strings.Builder
+	out.WriteString("(command)")
 	if len(descr.RequiredArgs) > 0 {
 		for _, a := range descr.RequiredArgs {
 			out.WriteString(" <")
