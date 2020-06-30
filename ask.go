@@ -447,6 +447,20 @@ func AddFlag(flags *pflag.FlagSet, typ reflect.Type, val reflect.Value, name str
 				flags.IPSliceVarP(data, name, shorthand, *data, help)
 			} else {
 				switch elemTyp.Kind() {
+				case reflect.Array:
+					switch elemTyp.Elem().Kind() {
+					case reflect.Uint8:
+						pVal := &fixedLenBytesSlice{Dest: val}
+						flags.AddFlag(&pflag.Flag{
+							Name:      name,
+							Shorthand: shorthand,
+							Usage:     help,
+							Value:     pVal,
+							DefValue:  pVal.String(),
+						})
+					default:
+						return fmt.Errorf("unrecognized element type of array-element slice: %v", elemTyp.Elem().String())
+					}
 				case reflect.Uint8:
 					b := (*[]byte)(ptr)
 					pVal := (*BytesHexFlag)(b)
@@ -569,7 +583,7 @@ func (f *fixedLenBytes) Set(value string) error {
 		return err
 	}
 	if uint64(len(b)) != f.ExpectedLength {
-		return fmt.Errorf("byte length does not match fixed-length of %d bytes, "+
+		return fmt.Errorf("byte length does not match fixed-length of %d bytes: "+
 			"parsed %d bytes", f.ExpectedLength, len(b))
 	}
 	copy(f.Dest, b)
@@ -578,4 +592,62 @@ func (f *fixedLenBytes) Set(value string) error {
 
 func (f *fixedLenBytes) Type() string {
 	return fmt.Sprintf("bytes%d", f.ExpectedLength)
+}
+
+// fixedLenBytesSlice exposes a slice of fixed-length bytes elements as a flag,
+// optional whitespace/padding, comma-separated.
+// Each element is hex-encoded, case insensitive, and optional 0x prefix.
+type fixedLenBytesSlice struct {
+	Dest reflect.Value
+}
+
+func (f fixedLenBytesSlice) String() string {
+	var buf strings.Builder
+	length := f.Dest.Len()
+	elemLen := f.Dest.Type().Elem().Len()
+	for i := 0; i < length; i++ {
+		if i > 0 {
+			buf.WriteString(",")
+		}
+		item := f.Dest.Index(i)
+		itemBytes := item.Slice(0, elemLen).Bytes()
+		buf.WriteString(hex.EncodeToString(itemBytes))
+	}
+	return buf.String()
+}
+
+func (f *fixedLenBytesSlice) Set(value string) error {
+	value = strings.TrimSpace(value)
+	value = strings.ToLower(value)
+	var elems []string
+	if len(value) > 0 {
+		elems = strings.Split(value, ",")
+	}
+	dest := reflect.MakeSlice(f.Dest.Type(), len(elems), len(elems))
+	elemTyp := f.Dest.Type().Elem()
+	elemLen := elemTyp.Len()
+	for i, el := range elems {
+		el = strings.TrimSpace(el)
+		if strings.HasPrefix(el, "0x") {
+			el = el[2:]
+		}
+		b, err := hex.DecodeString(el)
+		if err != nil {
+			return err
+		}
+		if len(b) != elemLen {
+			return fmt.Errorf("byte length of element %d does not match fixed-length of %d bytes: "+
+				"parsed %d bytes", i, elemLen, len(b))
+		}
+		destElem := dest.Index(i)
+		destElemBytes := destElem.Slice(0, elemLen).Bytes()
+		copy(destElemBytes, b)
+	}
+	f.Dest.Set(dest)
+	return nil
+}
+
+func (f *fixedLenBytesSlice) Type() string {
+	elemLen := f.Dest.Type().Elem().Len()
+	return fmt.Sprintf("[]bytes%d", elemLen)
 }

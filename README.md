@@ -6,6 +6,11 @@ This makes it suitable for shell applications, and CLIs with dynamic commands or
 It has minimal dependencies: only [`github.com/spf13/pflag`](https://github.com/spf13/pflag)
  for excellent and familiar flag parsing (Cobra CLI is powered with these flags).
 
+In addition, some special array/slice types are supported:
+- `[]byte` as hex-encoded string, case-insensitive, optional `0x` prefix and padding
+- `[N]byte`, same as above, but an array
+- `[][N]byte`, a comma-separated list of elements, each formatted like the above.
+
 Warning: this is a new experimental package, built to improve the [`Rumor`](https://github.com/protolambda/rumor) shell.
 
 Note: flags in between command parts, e.g. `peer --foobar connect ` are not supported, but may be in the future.
