@@ -124,7 +124,7 @@ func (descr *CommandDescription) LoadReflect(val reflect.Value) error {
 			v := val.Field(i)
 			// recurse into explicitly squashed fields
 			if tag == "." {
-				if err := descr.Load(v); err != nil {
+				if err := descr.LoadReflect(v); err != nil {
 					return err
 				}
 				continue
@@ -144,7 +144,7 @@ func (descr *CommandDescription) LoadReflect(val reflect.Value) error {
 		return nil
 	case reflect.Ptr:
 		if val.IsNil() {
-			val.Set(reflect.New(val.Type()))
+			val.Set(reflect.New(val.Type().Elem()))
 		}
 		return descr.LoadReflect(val.Elem())
 	default:
