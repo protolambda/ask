@@ -192,9 +192,9 @@ func (descr *CommandDescription) Usage() string {
 				}
 				subCmd, err := descr.CommandRoute.Cmd(k)
 				if err != nil {
-					out.WriteString("[error] failed to load command route")
+					out.WriteString(err.Error())
 				} else if subCmd == nil {
-					out.WriteString("[error] command route not available")
+					out.WriteString("Command route not available")
 				} else {
 					subDescr, err := Load(subCmd)
 					if err != nil {
