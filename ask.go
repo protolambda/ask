@@ -173,6 +173,12 @@ func (descr *CommandDescription) Usage() string {
 		}
 	}
 	out.WriteString("\n\n")
+
+	if descr.Help != nil {
+		out.WriteString(descr.Help.Help())
+		out.WriteString("\n\n")
+	}
+
 	if descr.FlagsSet.HasFlags() {
 		out.WriteString("Flags/args:\n")
 		out.WriteString(descr.FlagsSet.FlagUsages())
