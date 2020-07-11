@@ -3,6 +3,7 @@ package ask
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -32,13 +33,15 @@ func (c *Peer) Routes() []string {
 
 type Connect struct {
 	*ActorState
-	Addr    net.IP    `ask:"--addr" help:"address to connect to"`
-	Port    uint16    `ask:"--port" help:"port to use for connection"`
-	Tag     string    `ask:"--tag" help:"tag to give to peer"`
-	Data    uint8     `ask:"<data>" help:"some number"`
-	Digests [][3]byte `ask:"--digests" help:"some digests"`
-	PeerID  string    `ask:"<id>" help:"libp2p ID of the peer, if no address is specified, the peer is looked up in the peerstore"`
-	More    string    `ask:"[more]" help:"optional"`
+	Addr      net.IP    `ask:"--addr" help:"address to connect to"`
+	Port      uint16    `ask:"--port" help:"port to use for connection"`
+	Tag       string    `ask:"--tag" help:"tag to give to peer"`
+	Data      uint8     `ask:"<data>" help:"some number"`
+	Digests   [][3]byte `ask:"--digests" help:"some digests"`
+	PeerID    string    `ask:"<id>" help:"libp2p ID of the peer, if no address is specified, the peer is looked up in the peerstore"`
+	More      string    `ask:"[more]" help:"optional"`
+	PortIsSet bool      `changed:"port"`
+	AddrIsSet bool      `changed:"addr"`
 }
 
 func (c *Connect) Help() string {
@@ -54,6 +57,12 @@ func (c *Connect) Run(ctx context.Context, args ...string) error {
 	digests := ""
 	for _, d := range c.Digests {
 		digests += hex.EncodeToString(d[:]) + "!"
+	}
+	if c.PortIsSet {
+		return errors.New("expected port not to be set explicitly")
+	}
+	if !c.AddrIsSet {
+		return errors.New("expected addr to be set explicitly")
 	}
 	c.HostData = fmt.Sprintf("%s:%d #%s $%d %s ~ %s, remaining: %s ~ digests: %s",
 		c.Addr.String(), c.Port, c.Tag, c.Data, c.PeerID, c.More, strings.Join(args, ", "), digests)

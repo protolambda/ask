@@ -49,6 +49,9 @@ be retrieved from `.Usage()` after `Load()`-ing the command.
 For default options that are not `""` or `0` or other Go defaults, the `Default()` interface can be implemented on a command, 
 to set its flag values during `Load()`. 
 
+Flags being changed can be detected by declaring a separate `bool` type field, with `changed:"flagnamehere"`
+ to reference the flag (without flag prefix like `--`) which may be changed or not.
+
 ## Example
 
 ```go
@@ -95,6 +98,9 @@ type Connect struct {
     Data   uint8  `ask:"<data>" help:"some number"`
     PeerID string `ask:"<id>" help:"libp2p ID of the peer, if no address is specified, the peer is looked up in the peerstore"`
     More   string `ask:"[more]" help:"optional"`
+
+	PortIsSet bool      `changed:"port"`
+	AddrIsSet bool      `changed:"addr"`
 }
 
 func (c *Connect) Default() {
@@ -106,6 +112,8 @@ func (c *Connect) Help() string {
 }
 
 func (c *Connect) Run(ctx context.Context, args ...string) error {
+    // c.PortIsSet == false
+    // c.AddrIsSet == true
     c.HostData = fmt.Sprintf("%s:%d #%s $%d %s ~ %s, remaining: %s",
         c.Addr.String(), c.Port, c.Tag, c.Data, c.PeerID, c.More, strings.Join(args, ", "))
     return nil

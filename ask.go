@@ -57,6 +57,13 @@ type InitDefault interface {
 
 var initDefaultType = reflect.TypeOf((*InitDefault)(nil)).Elem()
 
+type ChangedMarker struct {
+	// Dest is the boolean which is set to true if the flag was changed from default, false otherwise.
+	Dest *bool
+	// The name of the flag which is changed or not
+	Name string
+}
+
 // An interface{} can be loaded as a command-description to execute it. See Load()
 type CommandDescription struct {
 	FlagsSet *pflag.FlagSet
@@ -64,6 +71,9 @@ type CommandDescription struct {
 	RequiredArgs []string
 	// Flags that can be passed as positional optional args
 	OptionalArgs []string
+	// ChangedMarkers tracks which flags are changed.
+	// Define a field as 'MySettingChanged bool `changed:"my-setting"`' to e.g. track '--my-setting' being changed.
+	ChangedMarkers []ChangedMarker
 	// Command to run, may be nil if nothing has to run
 	Command
 	// Sub-command routing, can create commands (or other sub-commands) to access, may be nil if no sub-commands
@@ -116,6 +126,22 @@ func (descr *CommandDescription) LoadReflect(val reflect.Value) error {
 		fieldCount := val.NumField()
 		for i := 0; i < fieldCount; i++ {
 			f := typ.Field(i)
+			if changed, ok := getChanged(&f); ok {
+				v := val.Field(i)
+				if !v.CanAddr() {
+					return fmt.Errorf("cannot get address of changed flag boolean field '%s'", f.Name)
+				}
+				if ptr, ok := v.Addr().Interface().(*bool); ok {
+					descr.ChangedMarkers = append(descr.ChangedMarkers, ChangedMarker{
+						Dest: ptr,
+						Name: changed,
+					})
+				} else {
+					return fmt.Errorf("changed flag field '%s' is not a bool", f.Name)
+				}
+				continue
+			}
+
 			tag, ok := getAsk(&f)
 			// skip ignored fields
 			if !ok || tag == "-" {
@@ -249,6 +275,9 @@ func (descr *CommandDescription) Execute(ctx context.Context, args ...string) (f
 	if err := descr.FlagsSet.Parse(args); err != nil && err != pflag.ErrHelp {
 		return descr, false, err
 	}
+	for _, v := range descr.ChangedMarkers {
+		*v.Dest = descr.FlagsSet.Changed(v.Name)
+	}
 	var remainingPositionalRequiredFlags []string
 	for _, v := range descr.RequiredArgs {
 		if !descr.FlagsSet.Changed(v) {
@@ -300,6 +329,10 @@ func (descr *CommandDescription) Execute(ctx context.Context, args ...string) (f
 
 func getAsk(f *reflect.StructField) (v string, ok bool) {
 	return f.Tag.Lookup("ask")
+}
+
+func getChanged(f *reflect.StructField) (v string, ok bool) {
+	return f.Tag.Lookup("changed")
 }
 
 var pflagValueType = reflect.TypeOf((*pflag.Value)(nil)).Elem()
