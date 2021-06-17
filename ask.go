@@ -214,14 +214,20 @@ func (descr *CommandDescription) Usage() string {
 		knownRoutes, ok := descr.CommandRoute.(CommandKnownRoutes)
 		if ok {
 			out.WriteString("Sub commands:\n")
-			for _, k := range knownRoutes.Routes() {
+			routes := knownRoutes.Routes()
+			maxRouteLen := 0
+			for _, r := range routes {
+				if len(r) > maxRouteLen {
+					maxRouteLen = len(r)
+				}
+			}
+			for _, k := range routes {
 				out.WriteString("  ")
 				out.WriteString(k)
-				if len(k) < 15 {
-					out.WriteString(strings.Repeat(" ", 17-len(k)))
-				} else {
-					out.WriteString("  ")
+				if len(k) < maxRouteLen {
+					out.WriteString(strings.Repeat(" ", maxRouteLen-len(k)))
 				}
+				out.WriteString("  ")
 				subCmd, err := descr.CommandRoute.Cmd(k)
 				if err != nil {
 					out.WriteString(err.Error())
