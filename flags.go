@@ -3,8 +3,10 @@ package ask
 import (
 	"bytes"
 	"encoding/csv"
+	"encoding/hex"
 	"fmt"
 	"net"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -358,7 +360,7 @@ func (s *DurationSliceValue) String() string {
 	for i, d := range *s {
 		out[i] = d.String()
 	}
-	return "[" + strings.Join(out, ",") + "]"
+	return strings.Join(out, ",")
 }
 
 type IPSliceValue []net.IP
@@ -385,7 +387,91 @@ func (s *IPSliceValue) String() string {
 	for i, d := range *s {
 		out[i] = d.String()
 	}
-	return "[" + strings.Join(out, ",") + "]"
+	return strings.Join(out, ",")
+}
+
+type Uint64SliceValue []uint64
+
+func (s *Uint64SliceValue) Set(val string) error {
+	ss := strings.Split(val, ",")
+	out := make([]uint64, len(ss))
+	for i, d := range ss {
+		v, err := strconv.ParseUint(d, 0, 64)
+		if err != nil {
+			return err
+		}
+		out[i] = v
+	}
+	*s = out
+	return nil
+}
+
+func (s *Uint64SliceValue) Type() string {
+	return "uint64Slice"
+}
+
+func (s *Uint64SliceValue) String() string {
+	out := make([]string, len(*s))
+	for i, d := range *s {
+		out[i] = fmt.Sprintf("%d", d)
+	}
+	return strings.Join(out, ",")
+}
+
+type Uint32SliceValue []uint32
+
+func (s *Uint32SliceValue) Set(val string) error {
+	ss := strings.Split(val, ",")
+	out := make([]uint32, len(ss))
+	for i, d := range ss {
+		v, err := strconv.ParseUint(d, 0, 32)
+		if err != nil {
+			return err
+		}
+		out[i] = uint32(v)
+	}
+	*s = out
+	return nil
+}
+
+func (s *Uint32SliceValue) Type() string {
+	return "uint32Slice"
+}
+
+func (s *Uint32SliceValue) String() string {
+	out := make([]string, len(*s))
+	for i, d := range *s {
+		out[i] = fmt.Sprintf("%d", d)
+	}
+	return strings.Join(out, ",")
+}
+
+type Uint16SliceValue []uint16
+
+func (s *Uint16SliceValue) Set(val string) error {
+	ss := strings.Split(val, ",")
+	out := make([]uint16, len(ss))
+	for i, d := range ss {
+		v, err := strconv.ParseUint(d, 0, 16)
+		if err != nil {
+			return err
+		}
+		out[i] = uint16(v)
+	}
+	*s = out
+	return nil
+}
+
+func (s *Uint16SliceValue) Type() string {
+	return "uint16Slice"
+}
+
+func (s *Uint16SliceValue) String() string {
+	out := make([]string, len(*s))
+	for i, d := range *s {
+		out[i] = fmt.Sprintf("%d", d)
+	}
+	return strings.Join(out, ",")
 }
 
 type UintSliceValue []uint
@@ -413,7 +499,7 @@ func (s *UintSliceValue) String() string {
 	for i, d := range *s {
 		out[i] = fmt.Sprintf("%d", d)
 	}
-	return "[" + strings.Join(out, ",") + "]"
+	return strings.Join(out, ",")
 }
 
 type IntSliceValue []int
@@ -441,7 +527,7 @@ func (s *IntSliceValue) String() string {
 	for i, d := range *s {
 		out[i] = fmt.Sprintf("%d", d)
 	}
-	return "[" + strings.Join(out, ",") + "]"
+	return strings.Join(out, ",")
 }
 
 type StringSliceValue []string
@@ -481,7 +567,7 @@ func (s *StringSliceValue) Type() string {
 
 func (s *StringSliceValue) String() string {
 	str, _ := writeAsCSV(*s)
-	return "[" + str + "]"
+	return str
 }
 
 type BoolSliceValue []bool
@@ -510,5 +596,122 @@ func (s *BoolSliceValue) String() string {
 		boolStrSlice[i] = strconv.FormatBool(b)
 	}
 
-	return "[" + strings.Join(boolStrSlice, ",") + "]"
+	return strings.Join(boolStrSlice, ",")
+}
+
+// BytesHex exposes bytes as a flag, hex-encoded,
+// optional whitespace padding, case insensitive, and optional 0x prefix.
+type BytesHexFlag []byte
+
+func (f BytesHexFlag) String() string {
+	return hex.EncodeToString(f)
+}
+
+func (f *BytesHexFlag) Set(value string) error {
+	value = strings.TrimSpace(value)
+	value = strings.ToLower(value)
+	if strings.HasPrefix(value, "0x") {
+		value = value[2:]
+	}
+	b, err := hex.DecodeString(value)
+	if err != nil {
+		return err
+	}
+	*f = b
+	return nil
+}
+
+func (f *BytesHexFlag) Type() string {
+	return "bytes"
+}
+
+// fixedLenBytes exposes fixed-length bytes as a flag, hex-encoded,
+// optional whitespace padding, case insensitive, and optional 0x prefix.
+type fixedLenBytes struct {
+	Dest           []byte
+	ExpectedLength uint64
+}
+
+func (f fixedLenBytes) String() string {
+	return hex.EncodeToString(f.Dest)
+}
+
+func (f *fixedLenBytes) Set(value string) error {
+	value = strings.TrimSpace(value)
+	value = strings.ToLower(value)
+	if strings.HasPrefix(value, "0x") {
+		value = value[2:]
+	}
+	b, err := hex.DecodeString(value)
+	if err != nil {
+		return err
+	}
+	if uint64(len(b)) != f.ExpectedLength {
+		return fmt.Errorf("byte length does not match fixed-length of %d bytes: "+
+			"parsed %d bytes", f.ExpectedLength, len(b))
+	}
+	copy(f.Dest, b)
+	return nil
+}
+
+func (f *fixedLenBytes) Type() string {
+	return fmt.Sprintf("bytes%d", f.ExpectedLength)
+}
+
+// fixedLenBytesSlice exposes a slice of fixed-length bytes elements as a flag,
+// optional whitespace/padding, comma-separated.
+// Each element is hex-encoded, case insensitive, and optional 0x prefix.
+type fixedLenBytesSlice struct {
+	Dest reflect.Value
+}
+
+func (f fixedLenBytesSlice) String() string {
+	var buf strings.Builder
+	length := f.Dest.Len()
+	elemLen := f.Dest.Type().Elem().Len()
+	for i := 0; i < length; i++ {
+		if i > 0 {
+			buf.WriteString(",")
+		}
+		item := f.Dest.Index(i)
+		itemBytes := item.Slice(0, elemLen).Bytes()
+		buf.WriteString(hex.EncodeToString(itemBytes))
+	}
+	return buf.String()
+}
+
+func (f *fixedLenBytesSlice) Set(value string) error {
+	value = strings.TrimSpace(value)
+	value = strings.ToLower(value)
+	var elems []string
+	if len(value) > 0 {
+		elems = strings.Split(value, ",")
+	}
+	dest := reflect.MakeSlice(f.Dest.Type(), len(elems), len(elems))
+	elemTyp := f.Dest.Type().Elem()
+	elemLen := elemTyp.Len()
+	for i, el := range elems {
+		el = strings.TrimSpace(el)
+		if strings.HasPrefix(el, "0x") {
+			el = el[2:]
+		}
+		b, err := hex.DecodeString(el)
+		if err != nil {
+			return err
+		}
+		if len(b) != elemLen {
+			return fmt.Errorf("byte length of element %d does not match fixed-length of %d bytes: "+
+				"parsed %d bytes", i, elemLen, len(b))
+		}
+		destElem := dest.Index(i)
+		destElemBytes := destElem.Slice(0, elemLen).Bytes()
+		copy(destElemBytes, b)
+	}
+	f.Dest.Set(dest)
+	return nil
+}
+
+func (f *fixedLenBytesSlice) Type() string {
+	elemLen := f.Dest.Type().Elem().Len()
+	return fmt.Sprintf("[]bytes%d", elemLen)
 }
