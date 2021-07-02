@@ -67,16 +67,16 @@ var initDefaultType = reflect.TypeOf((*InitDefault)(nil)).Elem()
 
 type Flag struct {
 	Value flag.Value
-	Name                string
+	Name  string
 	// 0 if no shorthand
-	Shorthand           uint8
-	IsArg               bool
-	Help                string
-	Default             string
-	Required            bool
+	Shorthand uint8
+	IsArg     bool
+	Help      string
+	Default   string
+	Required  bool
 	// Reason for deprecation. Empty if not deprecated.
-	Deprecated          string
-	Hidden              bool
+	Deprecated string
+	Hidden     bool
 }
 
 type PrefixedFlag struct {

@@ -7,7 +7,6 @@ import (
 	"strings"
 )
 
-
 type ApplyArg func(fl PrefixedFlag, value string) error
 
 // ParseArgs parses arguments as flags (long and short format).
