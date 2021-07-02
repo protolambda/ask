@@ -79,11 +79,11 @@ func TestPeerConnect(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, _, err := cmd.Execute(context.Background(), "bad"); err != UnrecognizedErr {
+	if _, err := cmd.Execute(context.Background(), nil, "bad"); err != UnrecognizedErr {
 		t.Fatal(err)
 	}
 
-	usage := cmd.Usage()
+	usage := cmd.Usage(false)
 	if !strings.HasPrefix(usage, "(command)\n\nSub commands:\n") {
 		t.Fatal("expected usage string starting with sub command header info")
 	}
@@ -91,12 +91,12 @@ func TestPeerConnect(t *testing.T) {
 		t.Fatal("expected usage string with connect sub command")
 	}
 
-	if cmd, isHelp, err := cmd.Execute(context.Background(), "connect", "--help"); err != nil {
+	if cmd, err := cmd.Execute(context.Background(), nil, "connect", "--help"); err != nil && err != HelpErr {
 		t.Fatal(err)
-	} else if !isHelp {
+	} else if err != HelpErr {
 		t.Fatal("expected help")
 	} else {
-		usage := cmd.Usage()
+		usage := cmd.Usage(false)
 		if !strings.HasPrefix(usage, "(command) <data> <id> [more]") {
 			t.Fatal("expected usage string starting with command usage info")
 		}
@@ -113,7 +113,7 @@ func TestPeerConnect(t *testing.T) {
 
 	// Execute returns the final command that is executed,
 	// to get the subcommands in case usage needs to be printed, or other result data is required.
-	if _, _, err := cmd.Execute(context.Background(),
+	if _, err := cmd.Execute(context.Background(), nil,
 		strings.Split("connect --addr 1.2.3.4 --tag=123hey 42 someid optionalhere --digests=a1b2c3,42e5f6,a1b2c3 extra more", " ")...); err != nil {
 		t.Fatal(err)
 	}

@@ -95,7 +95,7 @@ type FlagGroup struct {
 	Flags []*Flag
 }
 
-func (g *FlagGroup) Usage(prefix string, showHidden bool, out strings.Builder) {
+func (g *FlagGroup) Usage(prefix string, showHidden bool, out *strings.Builder) {
 	path := g.path(prefix)
 	if g.GroupName != "" {
 		out.WriteString("# ")
@@ -391,7 +391,7 @@ func (descr *CommandDescription) Usage(showHidden bool) string {
 
 	if len(all) > 0 {
 		out.WriteString("Flags:\n")
-		descr.FlagGroup.Usage("", showHidden, out)
+		descr.FlagGroup.Usage("", showHidden, &out)
 		out.WriteString("\n")
 	}
 
