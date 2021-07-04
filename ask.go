@@ -25,6 +25,12 @@ type TypedValue interface {
 	Type() string
 }
 
+type ImplicitValue interface {
+	flag.Value
+	// Implicit returns the omitted value of the flag if the flag is used without explicit value
+	Implicit() string
+}
+
 type Command interface {
 	// Run the command, with context and remaining unrecognized args
 	Run(ctx context.Context, args ...string) error
@@ -85,6 +91,12 @@ type PrefixedFlag struct {
 	*Flag
 }
 
+type InlineHelp string
+
+func (v InlineHelp) Help() string {
+	return string(v)
+}
+
 type FlagGroup struct {
 	GroupName string
 	// Optional help info, provided by the struct that covers this group of flags
@@ -104,33 +116,14 @@ func (g *FlagGroup) Usage(prefix string, showHidden bool, out *strings.Builder) 
 	}
 	if g.Help != nil {
 		out.WriteString(g.Help.Help())
-		out.WriteString("\n")
-	}
-	maxIndent := 6
-	for _, f := range g.Flags {
-		if f.Hidden && !showHidden {
-			continue
-		}
-		indent := 0
-		if f.Shorthand != 0 {
-			// e.g. "-c "
-			indent += 1 + 1 + 1
-		}
-		if f.Name != string(f.Shorthand) {
-			indent += 2 + len(f.Name) + 1
-		}
-		if indent > maxIndent {
-			maxIndent = indent
-		}
-		if maxIndent > 20 {
-			maxIndent = 20
-		}
+		out.WriteString("\n\n")
 	}
 	for _, f := range g.Flags {
 		if f.Hidden && !showHidden {
 			continue
 		}
-		indent := 0
+		out.WriteString("  ")
+		indent := 2
 		if f.Shorthand != 0 {
 			out.WriteString("-")
 			out.WriteByte(f.Shorthand)
@@ -139,27 +132,31 @@ func (g *FlagGroup) Usage(prefix string, showHidden bool, out *strings.Builder) 
 			indent += 1 + 1 + 1
 		}
 		if f.Name != string(f.Shorthand) {
-			var name string
+			var prefix, suffix string
 			if f.IsArg {
 				if f.Required {
-					name = "<" + f.Name + ">"
+					prefix = "<"
+					suffix = ">"
 				} else {
-					name = "[" + f.Name + "]"
+					prefix = "["
+					suffix = "]"
 				}
 			} else {
-				name = "--" + f.Name
+				prefix = "--"
 			}
+			out.WriteString(prefix)
 			if path != "" {
 				out.WriteString(path)
 				out.WriteString(".")
 				indent += len(path) + 1
 			}
-			out.WriteString(name)
+			out.WriteString(f.Name)
+			out.WriteString(suffix)
 			out.WriteString(" ")
-			indent += len(name) + 1
+			indent += len(prefix) + len(f.Name) + len(suffix) + 1
 		}
-		if indent < maxIndent {
-			out.WriteString(strings.Repeat(" ", maxIndent-indent))
+		if indent < 30 {
+			out.WriteString(strings.Repeat(" ", 30-indent))
 		}
 		out.WriteString(f.Help)
 		if f.Default != "" {
@@ -208,11 +205,14 @@ func (g *FlagGroup) All(prefix string) []PrefixedFlag {
 func (g *FlagGroup) all(out *[]PrefixedFlag, prefix string) {
 	path := g.path(prefix)
 	for _, f := range g.Flags {
-		*out = append(*out, PrefixedFlag{Path: path + f.Name, Flag: f})
+		k := f.Name
+		if path != "" {
+			k = path + "." + f.Name
+		}
+		*out = append(*out, PrefixedFlag{Path: k, Flag: f})
 	}
 	for _, g := range g.Entries {
-		grpFlags := g.All(path)
-		*out = append(*out, grpFlags...)
+		g.all(out, path)
 	}
 }
 
@@ -327,10 +327,13 @@ func fillGroup(grp *FlagGroup, val reflect.Value, changes ChangedMarkers) error 
 			}
 
 			// recurse into sub-groups
-			if strings.HasPrefix(".", tag) {
+			if strings.HasPrefix(tag, ".") {
 				subGrp, err := LoadGroup(tag[1:], v, changes)
 				if err != nil {
 					return err
+				}
+				if h, ok := f.Tag.Lookup("help"); ok {
+					subGrp.Help = InlineHelp(h)
 				}
 				grp.Entries = append(grp.Entries, subGrp)
 				continue
@@ -365,7 +368,7 @@ func (descr *CommandDescription) Usage(showHidden bool) string {
 	for _, a := range all {
 		if a.IsArg && a.Required {
 			out.WriteString(" <")
-			out.WriteString(a.Name)
+			out.WriteString(a.Path)
 			out.WriteString(">")
 			argCount++
 		}
@@ -373,24 +376,18 @@ func (descr *CommandDescription) Usage(showHidden bool) string {
 	for _, a := range all {
 		if a.IsArg && !a.Required {
 			out.WriteString(" [")
-			out.WriteString(a.Name)
+			out.WriteString(a.Path)
 			out.WriteString("]")
 			argCount++
 		}
 	}
 	if len(all) > argCount {
-		out.WriteString(fmt.Sprintf("# %d flags (see below)", len(all)-argCount))
+		out.WriteString(fmt.Sprintf(" # %d flags (see below)", len(all)-argCount))
 	}
 
 	out.WriteString("\n\n")
 
-	if descr.Help != nil {
-		out.WriteString(descr.Help.Help())
-		out.WriteString("\n\n")
-	}
-
 	if len(all) > 0 {
-		out.WriteString("Flags:\n")
 		descr.FlagGroup.Usage("", showHidden, &out)
 		out.WriteString("\n")
 	}
@@ -421,7 +418,8 @@ func (descr *CommandDescription) Usage(showHidden bool) string {
 				} else {
 					subDescr, err := Load(subCmd)
 					if err != nil {
-						out.WriteString("[error] command is invalid")
+						out.WriteString("[error] command is invalid\n")
+						out.WriteString(err.Error())
 					} else {
 						if subDescr.Help != nil {
 							out.WriteString(subDescr.Help.Help())
@@ -482,7 +480,6 @@ func (descr *CommandDescription) Execute(ctx context.Context, onDeprecated func(
 				positionalOptional = append(positionalOptional, pf)
 			}
 		} else {
-			long = append(long, pf)
 			if pf.Shorthand != 0 {
 				short = append(short, pf)
 			}
@@ -760,13 +757,16 @@ func FlagValue(typ reflect.Type, val reflect.Value) (flag.Value, error) {
 					fl = (*Uint32SliceValue)(ptr)
 				case reflect.Uint:
 					fl = (*UintSliceValue)(ptr)
+				case reflect.Int8:
+					fl = (*Int8SliceValue)(ptr)
+				case reflect.Int16:
+					fl = (*Int16SliceValue)(ptr)
+				case reflect.Int32:
+					fl = (*Int32SliceValue)(ptr)
+				case reflect.Int64:
+					fl = (*Int64SliceValue)(ptr)
 				case reflect.Int:
 					fl = (*IntSliceValue)(ptr)
-				// TODO
-				//case reflect.Int32:
-				//	fl = (*Int32SliceValue)(ptr)
-				//case reflect.Int64:
-				//	fl = (*Int64SliceValue)(ptr)
 				//case reflect.Float32:
 				//	fl = (*Float32SliceValue)(ptr)
 				//case reflect.Float64:

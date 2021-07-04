@@ -76,9 +76,9 @@ func ParseLongArg(sortedFlags []PrefixedFlag, firstArg string, args []string, fn
 	if len(split) == 2 {
 		// '--flag=arg'
 		value = split[1]
-	} else if fl.Default != "" {
+	} else if flv, ok := fl.Value.(ImplicitValue); ok {
 		// '--flag' (arg was optional)
-		value = fl.Default
+		value = flv.Implicit()
 	} else if len(nextArgs) > 0 {
 		// '--flag arg'
 		value = nextArgs[0]
@@ -89,7 +89,7 @@ func ParseLongArg(sortedFlags []PrefixedFlag, firstArg string, args []string, fn
 	}
 
 	if err := fn(fl, value); err != nil {
-		return nextArgs, fmt.Errorf("failed to apply flag %s: %v", name, value)
+		return nextArgs, fmt.Errorf("failed to apply flag %s: %q, err: %v", name, value, err)
 	}
 
 	return nextArgs, nil
@@ -125,9 +125,9 @@ func parseSingleShortArg(sortedFlags []PrefixedFlag, shorthands string, args []s
 		// '-f=arg'
 		value = shorthands[2:]
 		remainingShorthands = ""
-	} else if fl.Default != "" {
+	} else if flv, ok := fl.Value.(ImplicitValue); ok {
 		// '-f' (arg was optional)
-		value = fl.Default
+		value = flv.Implicit()
 	} else if len(shorthands) > 1 {
 		// '-farg'
 		value = shorthands[1:]

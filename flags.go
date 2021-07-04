@@ -303,6 +303,10 @@ func (b *BoolValue) String() string {
 	return strconv.FormatBool(bool(*b))
 }
 
+func (b *BoolValue) Implicit() string {
+	return "true"
+}
+
 type Float32Value float32
 
 func (f *Float32Value) Set(s string) error {
@@ -523,6 +527,118 @@ func (s *IntSliceValue) Type() string {
 }
 
 func (s *IntSliceValue) String() string {
+	out := make([]string, len(*s))
+	for i, d := range *s {
+		out[i] = fmt.Sprintf("%d", d)
+	}
+	return strings.Join(out, ",")
+}
+
+type Int64SliceValue []int64
+
+func (s *Int64SliceValue) Set(val string) error {
+	ss := strings.Split(val, ",")
+	out := make([]int64, len(ss))
+	for i, d := range ss {
+		v, err := strconv.ParseInt(d, 0, 64)
+		if err != nil {
+			return err
+		}
+		out[i] = v
+	}
+	*s = out
+	return nil
+}
+
+func (s *Int64SliceValue) Type() string {
+	return "int64Slice"
+}
+
+func (s *Int64SliceValue) String() string {
+	out := make([]string, len(*s))
+	for i, d := range *s {
+		out[i] = fmt.Sprintf("%d", d)
+	}
+	return strings.Join(out, ",")
+}
+
+type Int32SliceValue []int32
+
+func (s *Int32SliceValue) Set(val string) error {
+	ss := strings.Split(val, ",")
+	out := make([]int32, len(ss))
+	for i, d := range ss {
+		v, err := strconv.ParseInt(d, 0, 32)
+		if err != nil {
+			return err
+		}
+		out[i] = int32(v)
+	}
+	*s = out
+	return nil
+}
+
+func (s *Int32SliceValue) Type() string {
+	return "int32Slice"
+}
+
+func (s *Int32SliceValue) String() string {
+	out := make([]string, len(*s))
+	for i, d := range *s {
+		out[i] = fmt.Sprintf("%d", d)
+	}
+	return strings.Join(out, ",")
+}
+
+type Int16SliceValue []int16
+
+func (s *Int16SliceValue) Set(val string) error {
+	ss := strings.Split(val, ",")
+	out := make([]int16, len(ss))
+	for i, d := range ss {
+		v, err := strconv.ParseInt(d, 0, 16)
+		if err != nil {
+			return err
+		}
+		out[i] = int16(v)
+	}
+	*s = out
+	return nil
+}
+
+func (s *Int16SliceValue) Type() string {
+	return "int16Slice"
+}
+
+func (s *Int16SliceValue) String() string {
+	out := make([]string, len(*s))
+	for i, d := range *s {
+		out[i] = fmt.Sprintf("%d", d)
+	}
+	return strings.Join(out, ",")
+}
+
+type Int8SliceValue []int8
+
+func (s *Int8SliceValue) Set(val string) error {
+	ss := strings.Split(val, ",")
+	out := make([]int8, len(ss))
+	for i, d := range ss {
+		v, err := strconv.ParseInt(d, 0, 16)
+		if err != nil {
+			return err
+		}
+		out[i] = int8(v)
+	}
+	*s = out
+	return nil
+}
+
+func (s *Int8SliceValue) Type() string {
+	return "int8Slice"
+}
+
+func (s *Int8SliceValue) String() string {
 	out := make([]string, len(*s))
 	for i, d := range *s {
 		out[i] = fmt.Sprintf("%d", d)
