@@ -364,13 +364,11 @@ func (descr *CommandDescription) Usage(showHidden bool) string {
 	out.WriteString("(command)")
 	all := descr.All("")
 
-	argCount := 0
 	for _, a := range all {
 		if a.IsArg && a.Required {
 			out.WriteString(" <")
 			out.WriteString(a.Path)
 			out.WriteString(">")
-			argCount++
 		}
 	}
 	for _, a := range all {
@@ -378,11 +376,16 @@ func (descr *CommandDescription) Usage(showHidden bool) string {
 			out.WriteString(" [")
 			out.WriteString(a.Path)
 			out.WriteString("]")
-			argCount++
 		}
 	}
-	if len(all) > argCount {
-		out.WriteString(fmt.Sprintf(" # %d flags (see below)", len(all)-argCount))
+	flagCount := 0
+	for _, a := range all {
+		if !a.IsArg && (!a.Hidden || showHidden) {
+			flagCount += 1
+		}
+	}
+	if flagCount > 0 {
+		out.WriteString(fmt.Sprintf(" # %d flags (see below)", flagCount))
 	}
 
 	out.WriteString("\n\n")
@@ -435,6 +438,10 @@ func (descr *CommandDescription) Usage(showHidden bool) string {
 	return out.String()
 }
 
+type ExecutionOptions struct {
+	OnDeprecated func(fl PrefixedFlag) error
+}
+
 // Execute runs the command, with given context and arguments.
 // Commands may have routes to sub-commands, the final sub-command that actually runs is returned,
 // and may be nil in case of an error.
@@ -446,11 +453,14 @@ func (descr *CommandDescription) Usage(showHidden bool) string {
 // and the command can pass them on to sub-commands. Similarly logging and other misc. data can be passed around.
 // The execute parameters are kept minimal.
 //
-// onDeprecated is called for each deprecated flag,
+// opts.OnDeprecated is called for each deprecated flag,
 // and command execution exits immediately if this callback returns an error.
-func (descr *CommandDescription) Execute(ctx context.Context, onDeprecated func(fl PrefixedFlag) error, args ...string) (final *CommandDescription, err error) {
+func (descr *CommandDescription) Execute(ctx context.Context, opts *ExecutionOptions, args ...string) (final *CommandDescription, err error) {
 	if len(args) > 0 && (args[0] == "--help" || args[0] == "-h" || args[0] == "help") {
 		return descr, HelpErr
+	}
+	if opts == nil {
+		opts = &ExecutionOptions{}
 	}
 
 	if descr.CommandRoute != nil && len(args) > 0 {
@@ -463,7 +473,7 @@ func (descr *CommandDescription) Execute(ctx context.Context, onDeprecated func(
 			if err != nil {
 				return nil, err
 			}
-			return subCmd.Execute(ctx, onDeprecated, args[1:]...)
+			return subCmd.Execute(ctx, opts, args[1:]...)
 		}
 		// deal with it as regular command if it is not recognized as sub-command
 	}
@@ -502,8 +512,8 @@ func (descr *CommandDescription) Execute(ctx context.Context, onDeprecated func(
 			*ptr = true
 		}
 
-		if fl.Deprecated != "" {
-			if err := onDeprecated(fl); err != nil {
+		if fl.Deprecated != "" && opts.OnDeprecated != nil {
+			if err := opts.OnDeprecated(fl); err != nil {
 				return err
 			}
 		}
