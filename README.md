@@ -204,7 +204,7 @@ func (b *BoolValue) Implicit() string {
 cmd, err := Load(MyCommandStruct{})
 
 // Execute a command
-subcmd, err := cmd.Execute(context.Background(), "hello", "sub", "some", "args", "--here")
+subcmd, err := cmd.Execute(context.Background(), nil, "hello", "sub", "some", "args", "--here")
 ```
 
 The help information, along usage info (flag set info + default values + sub commands list) can 
