@@ -624,7 +624,7 @@ func (s *Int8SliceValue) Set(val string) error {
 	ss := strings.Split(val, ",")
 	out := make([]int8, len(ss))
 	for i, d := range ss {
-		v, err := strconv.ParseInt(d, 0, 16)
+		v, err := strconv.ParseInt(d, 0, 8)
 		if err != nil {
 			return err
 		}
@@ -642,6 +642,62 @@ func (s *Int8SliceValue) String() string {
 	out := make([]string, len(*s))
 	for i, d := range *s {
 		out[i] = fmt.Sprintf("%d", d)
+	}
+	return strings.Join(out, ",")
+}
+
+type Float32SliceValue []float32
+
+func (s *Float32SliceValue) Set(val string) error {
+	ss := strings.Split(val, ",")
+	out := make([]float32, len(ss))
+	for i, d := range ss {
+		v, err := strconv.ParseFloat(d, 32)
+		if err != nil {
+			return err
+		}
+		out[i] = float32(v)
+	}
+	*s = out
+	return nil
+}
+
+func (s *Float32SliceValue) Type() string {
+	return "float32Slice"
+}
+
+func (s *Float32SliceValue) String() string {
+	out := make([]string, len(*s))
+	for i, d := range *s {
+		out[i] = fmt.Sprintf("%f", d)
+	}
+	return strings.Join(out, ",")
+}
+
+type Float64SliceValue []float64
+
+func (s *Float64SliceValue) Set(val string) error {
+	ss := strings.Split(val, ",")
+	out := make([]float64, len(ss))
+	for i, d := range ss {
+		v, err := strconv.ParseFloat(d, 64)
+		if err != nil {
+			return err
+		}
+		out[i] = v
+	}
+	*s = out
+	return nil
+}
+
+func (s *Float64SliceValue) Type() string {
+	return "float64Slice"
+}
+
+func (s *Float64SliceValue) String() string {
+	out := make([]string, len(*s))
+	for i, d := range *s {
+		out[i] = fmt.Sprintf("%f", d)
 	}
 	return strings.Join(out, ",")
 }

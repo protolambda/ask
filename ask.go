@@ -767,10 +767,10 @@ func FlagValue(typ reflect.Type, val reflect.Value) (flag.Value, error) {
 					fl = (*Int64SliceValue)(ptr)
 				case reflect.Int:
 					fl = (*IntSliceValue)(ptr)
-				//case reflect.Float32:
-				//	fl = (*Float32SliceValue)(ptr)
-				//case reflect.Float64:
-				//	fl = (*Float64SliceValue)(ptr)
+				case reflect.Float32:
+					fl = (*Float32SliceValue)(ptr)
+				case reflect.Float64:
+					fl = (*Float64SliceValue)(ptr)
 				case reflect.String:
 					fl = (*StringSliceValue)(ptr)
 				case reflect.Bool:
@@ -801,7 +801,6 @@ func FlagValue(typ reflect.Type, val reflect.Value) (flag.Value, error) {
 			// and recurse into the type
 			return FlagValue(typ.Elem(), val.Elem())
 		default:
-			// TODO: more flag types?
 			return nil, fmt.Errorf("unrecognized type: %v", typ.String())
 		}
 	}
