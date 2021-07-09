@@ -456,6 +456,9 @@ type ExecutionOptions struct {
 // opts.OnDeprecated is called for each deprecated flag,
 // and command execution exits immediately if this callback returns an error.
 func (descr *CommandDescription) Execute(ctx context.Context, opts *ExecutionOptions, args ...string) (final *CommandDescription, err error) {
+	if len(args) > 0 && (args[0] == "--help" || args[0] == "-h" || args[0] == "help") {
+		return descr, HelpErr
+	}
 	if opts == nil {
 		opts = &ExecutionOptions{}
 	}
@@ -780,7 +783,6 @@ func FlagValue(typ reflect.Type, val reflect.Value) (flag.Value, error) {
 					fl = (*Float64SliceValue)(ptr)
 				case reflect.String:
 					fl = (*StringSliceValue)(ptr)
-					fmt.Printf("fl; %v\n", fl)
 				case reflect.Bool:
 					fl = (*BoolSliceValue)(ptr)
 				default:
