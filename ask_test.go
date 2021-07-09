@@ -47,6 +47,10 @@ type InlineOptions struct {
 	Bytes  []byte  `ask:"--hex" help:"Hex value"`
 }
 
+func (opts *InlineOptions) Default() {
+	opts.Foobar = []int32{4, 5, 6}
+}
+
 type Connect struct {
 	*ActorState
 	Addr          net.IP `ask:"--addr" help:"address to connect to"`
@@ -124,6 +128,9 @@ func TestPeerConnect(t *testing.T) {
 		}
 		if !strings.Contains(usage, "a1b2c3,d4e5f6") {
 			t.Fatalf("expected default digest value to be included, got: %s", usage)
+		}
+		if !strings.Contains(usage, "default: 4,5,6") {
+			t.Fatalf("expected embedded default to be included in help details, got: %s", usage)
 		}
 	}
 

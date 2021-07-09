@@ -320,7 +320,7 @@ func fillGroup(grp *FlagGroup, val reflect.Value, changes ChangedMarkers) error 
 
 			// recurse into explicitly inline-squashed fields
 			if tag == "." {
-				if err := fillGroup(grp, v, changes); err != nil {
+				if err := fillGroup(grp, v.Addr(), changes); err != nil {
 					return fmt.Errorf("failed to load squashed flag group into group %q: %v", grp.GroupName, err)
 				}
 				continue
@@ -328,7 +328,7 @@ func fillGroup(grp *FlagGroup, val reflect.Value, changes ChangedMarkers) error 
 
 			// recurse into sub-groups
 			if strings.HasPrefix(tag, ".") {
-				subGrp, err := LoadGroup(tag[1:], v, changes)
+				subGrp, err := LoadGroup(tag[1:], v.Addr(), changes)
 				if err != nil {
 					return err
 				}
@@ -456,9 +456,6 @@ type ExecutionOptions struct {
 // opts.OnDeprecated is called for each deprecated flag,
 // and command execution exits immediately if this callback returns an error.
 func (descr *CommandDescription) Execute(ctx context.Context, opts *ExecutionOptions, args ...string) (final *CommandDescription, err error) {
-	if len(args) > 0 && (args[0] == "--help" || args[0] == "-h" || args[0] == "help") {
-		return descr, HelpErr
-	}
 	if opts == nil {
 		opts = &ExecutionOptions{}
 	}
@@ -783,6 +780,7 @@ func FlagValue(typ reflect.Type, val reflect.Value) (flag.Value, error) {
 					fl = (*Float64SliceValue)(ptr)
 				case reflect.String:
 					fl = (*StringSliceValue)(ptr)
+					fmt.Printf("fl; %v\n", fl)
 				case reflect.Bool:
 					fl = (*BoolSliceValue)(ptr)
 				default:

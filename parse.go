@@ -61,7 +61,7 @@ func ParseLongArg(sortedFlags []PrefixedFlag, firstArg string, args []string, fn
 		return sortedFlags[i].Path >= name
 	})
 
-	if flagIndex == len(sortedFlags) {
+	if flagIndex == len(sortedFlags) || sortedFlags[flagIndex].Path != name {
 		// unrecognized
 		if name == "help" {
 			return nextArgs, HelpErr
