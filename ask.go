@@ -765,6 +765,8 @@ func FlagValue(typ reflect.Type, val reflect.Value) (flag.Value, error) {
 					fl = (*Uint16SliceValue)(ptr)
 				case reflect.Uint32:
 					fl = (*Uint32SliceValue)(ptr)
+				case reflect.Uint64:
+					fl = (*Uint64SliceValue)(ptr)
 				case reflect.Uint:
 					fl = (*UintSliceValue)(ptr)
 				case reflect.Int8:
