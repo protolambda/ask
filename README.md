@@ -201,7 +201,7 @@ func (b *BoolValue) Implicit() string {
 
 ```go
 // load a command struct
-cmd, err := Load(MyCommandStruct{})
+cmd, err := Load(&MyCommandStruct{})
 
 // Execute a command
 subcmd, err := cmd.Execute(context.Background(), nil, "hello", "sub", "some", "args", "--here")
@@ -213,6 +213,7 @@ be retrieved from `.Usage(showHidden)` after `Load()`-ing the command.
 For default options that are not `""` or `0` or other Go defaults, the `Default()` interface can be implemented on a command, 
 to set its flag values during `Load()`. 
 
+For convenience `ask.Run(&MyCommandStruct{})` can be used to parse args, run and shut-down with `os.Interrupt` (if `io.Closer`).
 
 ## License
 

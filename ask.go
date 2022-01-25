@@ -5,7 +5,10 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net"
+	"os"
+	"os/signal"
 	"reflect"
 	"sort"
 	"strings"
@@ -817,4 +820,68 @@ func FlagValue(typ reflect.Type, val reflect.Value) (flag.Value, error) {
 		}
 	}
 	return fl, nil
+}
+
+type start struct {
+	cmd *CommandDescription
+	err error
+}
+
+// Run is a convenience-method to run a command: it handles long-running commands and shuts down on os.Interrupt signal.
+// Arguments are read from os.Args[1:] (i.e. program name is skipped).
+// Set the "HIDDEN_OPTIONS" env var to show hidden CLI options.
+func Run(cmd interface{}) {
+	interrupt := make(chan os.Signal, 1)
+	signal.Notify(interrupt, os.Interrupt)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	descr, err := Load(cmd)
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "failed to load main command: %v", err.Error())
+		os.Exit(1)
+	}
+	onDeprecated := func(fl PrefixedFlag) error {
+		fmt.Fprintf(os.Stderr, "warning: flag %q is deprecated: %s", fl.Path, fl.Deprecated)
+		return nil
+	}
+
+	starter := make(chan start)
+
+	// run command in the background, so we can stop it at any time
+	go func() {
+		cmd, err := descr.Execute(ctx, &ExecutionOptions{OnDeprecated: onDeprecated}, os.Args[1:]...)
+		starter <- start{cmd, err}
+	}()
+
+	for {
+		select {
+		case start := <-starter:
+			if cmd, err := start.cmd, start.err; err == nil {
+				// if the command is long-running and closeable later on, then have the interrupt close it.
+				if cl, ok := cmd.Command.(io.Closer); ok {
+					<-interrupt
+					err := cl.Close()
+					cancel()
+					if err != nil {
+						_, _ = fmt.Fprintf(os.Stderr, "failed to close gracefully. Exiting in 5 seconds. %v", err.Error())
+						<-time.After(time.Second * 5)
+						os.Exit(1)
+					}
+				}
+				os.Exit(0)
+			} else if err == UnrecognizedErr {
+				_, _ = fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			} else if err == HelpErr {
+				_, _ = fmt.Fprintln(os.Stderr, cmd.Usage(os.Getenv("HIDDEN_OPTIONS") != ""))
+				os.Exit(0)
+			} else {
+				_, _ = fmt.Fprintln(os.Stderr, err.Error())
+				os.Exit(1)
+			}
+		case <-interrupt: // if interrupted during start, then we try to cancel
+			cancel()
+		}
+	}
 }
