@@ -1,8 +1,14 @@
 # Ask
 
-Ask is a small CLI building package for Go, which enables you to define commands as data-types, without requiring full initialization upfront.
-This makes it suitable for shell applications, and CLIs with dynamic commands or just too many to load at once. 
-Ask is composable and open, it is designed for highly re-usable flags, flag-groups and command extensibility.
+Ask is a small CLI building package for Go.
+
+Commands are defined as data-types,
+and sub-commands do not require initialization upfront.
+This makes it suitable for shell applications,
+and CLIs with dynamic commands or just too many to load at once. 
+
+Ask is composable and open, it is designed for highly re-usable flags,
+flag-groups and command extensibility.
 
 In addition to common Go basic types, some special array/slice types are supported:
 - `[](u)int(8/16/32/64)`: integer slices
@@ -12,8 +18,6 @@ In addition to common Go basic types, some special array/slice types are support
 - `[N]byte`, same as above, but an array
 - `[][N]byte`, a comma-separated list of elements, each formatted like the above.
 
-Note: flags in between command parts, e.g. `peer --foobar connect ` are not supported, but may be in the future.
-
 ## Flags
 
 Each flag and (optional) argument is declared as a struct-field in a command.
@@ -22,8 +26,8 @@ Ask is designed to make command options as reusable as possible.
 
 Struct tags:
 - `ask`: to declare a field as flag/arg.
-  - `ask:"<mainthing>"`: a positional required argument
-  - `ask:"[extrathing]`: a positional optional argument
+  - `ask:"<mainthing>"`: a positional required argument (alias: `--mainthing`)
+  - `ask:"[extrathing]`: a positional optional argument (alias: `--extrathing`)
   - `ask:"--my-flag`: a long flag
   - `ask:"-v`: a shorthand flag
   - `ask:"--verbose -v"`: a long flag with shorthand
@@ -32,7 +36,10 @@ Struct tags:
 - `help:"Infomation about flag here"`: define flag / flag-group usage info
 - `hidden:"any value"`: to hide a flag from usage info
 - `deprecated:"reason here"`: to mark a flag as deprecated
-- `changed:"someflagname`: to track if another flag has changed, for boolean struct fields only. 
+- environment variable support:
+  - `ask:"--my-flag"` automatically becomes `MY_FLAG`
+  - `env:"SPECIAL_ENV_NAME"`: to load as `SPECIAL_ENV_NAME`
+  - `env:"-"`: disables env, flag/arg only.
 
 Example:
 ```go
@@ -82,41 +89,11 @@ And then flags look like:
 my-node-cmd --ws.port=5000 --ws.ip=1.2.3.4 --tcp.port=8080 --tcp.ip=5.6.7.8
 ```
 
-## Routing sub-commands
-
-Implement the `CommandRoute` interface to return a sub-command.
-```go
-func (c *RoutedCmd) Cmd(route string) (cmd interface{}, err error) {
-	switch route {
-    case "foo":
-    	return nil, &BoundCmd{KeyParam: "foo"}
-    case "bar":
-        return nil, &BoundCmd{KeyParam: "bar"}
-    default:
-        return nil, UnrecognizedErr
-    }
-}
-```
-
-The routing approach is different from any other CLI library, allowing for very dynamic command execution.
-Commands can pass along any data to sub-commands (with typing, no context/globals necessary).
-This also enables easy parametrization of commands, commands can even be recursive.
-
-## Route listing
-
-Optionally a `CommandRoute` can also implement the `Routes` interface to inform Ask of valid inputs
-(for usage information, not part of validation).
-```go
-func (c *RoutedCmd) Routes() []string {
-	return []string{"foo", "bar"}
-}
-```
-
 ## Running commands
 
 Implement the `Command` interface to make a command executable:
 ```go
-func (c *BoundCmd) Run(ctx context.Context, args ...string) error {
+func (c *BoundCmd) Run(ctx context.Context) error {
 	val := getExternalValue(ctx, c.KeyParam)
 	if val < c.LowBound || val > c.HighBound {
 		return fmt.Errorf("val %d (%s) out of bounds %d <> %d", val, c.KeyParam, c.LowBound, c.HighBound)
@@ -126,7 +103,38 @@ func (c *BoundCmd) Run(ctx context.Context, args ...string) error {
 ```
 
 The struct flags/args will be fully initialized before `Run` executes.
-Any unparsed trailing arguments are passed to `args...`.
+Any unparsed trailing arguments can be accessed through `ask.Args(ctx)`.
+
+### `InitDefault`
+
+Commands can implement the `InitDefault` interface to specify non-zero flag defaults.
+
+```go
+func (c *BoundCmd) Default() {
+	c.LowBound = 20
+	c.HighBound = 45
+}
+```
+
+### Routing sub-commands
+
+Sub-commands are simply nested Run calls.
+
+```go
+func (c *OuterCmd) Run(ctx context.Context) error {
+    subCmd, subArgs := SplitArgs(ctx)
+    switch subCmd {
+    case "foo":
+        return Run(ctx, &FooCmd{}, subArgs)
+    case "bar":
+        return Run(ctx, &BarCmd{}, subArgs)
+    default:
+        return UnrecognizedErr
+    }
+}
+```
+
+Commands can pre-configure inner commands, dynamically route, or even recurse.
 
 ## `Help`
 
@@ -139,18 +147,33 @@ func (c *BoundCmd) Help() string {
 }
 ```
 
-## `InitDefault`
+### Sub-command listing
 
-Commands can implement the `InitDefault` interface to specify non-zero flag defaults.
-
+Since routing is dynamic, the command usage information doesn't print sub-commands by default.
+To describe sub-commands, implement `MoreHelp`.
+The `SubCommandsUsage` can generate a simple sub-commands overview:
 ```go
-func (c *BoundCmd) Default() {
-	c.LowBound = 20
-	c.HighBound = 45
+func (c *OuterCmd) MoreHelp() string {
+	return SubCommandsUsage(&FooCmd{}, &BarCmd)
 }
 ```
 
-## `flag.Value`
+### Output command usage
+
+When encountering `-h` or `--help`, `Run` returns a `ask.HelpErr`,
+wrapped with information about the command.
+When wrapping sub-command errors, the inner-most command info is preserved.
+
+The usage of the failed command (upon `ask.HelpErr` or any other `Run` error)
+can be retrieved with `UsageFromErr`:
+
+```go
+fmt.Println(UsageFromErr(err))
+```
+
+## Flag customization
+
+### `flag.Value`
 
 The standard Go flag `Value` interface `func String() string, func Set(string) error` can be used to define custom flags.
 
@@ -176,7 +199,7 @@ func (f *ENRFlag) Set(v string) error {
 }
 ```
 
-## `TypedValue`
+### `TypedValue`
 
 A custom flag type can be explicit about its type to enhance usage information, and not rely on a help description for repetitive type information.
 
@@ -186,7 +209,7 @@ func (f *ENRFlag) Type() string {
 }
 ```
 
-## `ImplicitValue`
+### `ImplicitValue`
 
 A boolean flag can omit the value to be interpreted as True, e.g. `my-cli do something --awesome`.
 For a flag to have an implicit value, implement this interface.
@@ -196,24 +219,6 @@ func (b *BoolValue) Implicit() string {
 	return "true"
 }
 ```
-
-## Usage
-
-```go
-// load a command struct
-cmd, err := Load(&MyCommandStruct{})
-
-// Execute a command
-subcmd, err := cmd.Execute(context.Background(), nil, "hello", "sub", "some", "args", "--here")
-```
-
-The help information, along usage info (flag set info + default values + sub commands list) can 
-be retrieved from `.Usage(showHidden)` after `Load()`-ing the command.
-
-For default options that are not `""` or `0` or other Go defaults, the `Default()` interface can be implemented on a command, 
-to set its flag values during `Load()`. 
-
-For convenience `ask.Run(&MyCommandStruct{})` can be used to parse args, run and shut-down with `os.Interrupt` (if `io.Closer`).
 
 ## License
 

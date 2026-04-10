@@ -11,6 +11,7 @@ type ApplyArg func(fl PrefixedFlag, value string) error
 
 // ParseArgs parses arguments as flags (long and short format).
 // Not all arguments may be consumed as flags, the remaining arguments are returned.
+// Parsing stops as soon as the first non-flag arg that is not a value to a prior flag.
 // Unrecognized flags result in an error.
 // A HelpErr is returned if a flag like `--help` or `-h` is detected.
 func ParseArgs(sortedShort []PrefixedFlag, sortedLong []PrefixedFlag,
@@ -18,11 +19,16 @@ func ParseArgs(sortedShort []PrefixedFlag, sortedLong []PrefixedFlag,
 	for len(args) > 0 {
 		s := args[0]
 		args = args[1:]
+		// empty, or non-flag, or single '-': stop parsing for more args/flags,
+		// return all remaining.
+		// Any flags in remaining content are from sub-commands etc.
 		if len(s) == 0 || s[0] != '-' || len(s) == 1 {
 			remaining = append(remaining, s)
-			continue
+			remaining = append(remaining, args...)
+			return
 		}
 
+		// Parse flag, including stand-alone argument value if any
 		if s[1] == '-' {
 			if len(s) == 2 { // "--" terminates the flags
 				remaining = append(remaining, args...)
