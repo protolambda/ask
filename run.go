@@ -30,17 +30,13 @@ func Run(ctx context.Context, cmd Command, args []string, opts ...Option) (outEr
 
 	cfg := newRunConfig(opts...)
 
-	// Parse the command into a fully described command
+	// Parse the command into a fully described command.
+	// This applies the defaults of the command (see InitDefault) before capturing the flags.
 	if v, err := loadCmdDescription(cmd, cfg); err != nil {
 		outErr = errors.Join(outErr, fmt.Errorf("failed to load command %T: %w", cmd, err))
 		return outErr
 	} else {
 		descr = v
-	}
-
-	// Apply the defaults to the command
-	if v, ok := cmd.(InitDefault); ok {
-		v.Default()
 	}
 
 	// Apply the args: fill flags and remaining args with values

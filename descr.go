@@ -2,6 +2,7 @@ package ask
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"sort"
@@ -27,13 +28,19 @@ type cmdDescription struct {
 
 func loadCmdDescription(cmd Command, cfg *runConfig) (*cmdDescription, error) {
 	val := reflect.ValueOf(cmd)
+	if !val.IsValid() || (val.Kind() == reflect.Ptr && val.IsNil()) {
+		return nil, errors.New("cannot load flags of nil command")
+	}
 	grp := new(FlagGroup)
 	grp.GroupName = ""
 
-	// Load the flag definitions
+	// Apply the defaults, and load the flag definitions
 	err := grp.Load(val)
 	if err != nil {
 		return nil, fmt.Errorf("cannot load flags: %w", err)
+	}
+	if err := checkFlagCollisions(grp.All("")); err != nil {
+		return nil, err
 	}
 	name := InferName(cmd)
 	// Create the description of this command, with its flags
@@ -69,13 +76,10 @@ func (descr *cmdDescription) applyArgs(ctx context.Context, args []string) error
 
 	allFlags := descr.Root.All("")
 
-	// First try to set all flags from env vars.
+	// First try to set all flags (including positional args) from env vars.
 	// These flag changes may be overridden later by arg based flags.
 	envFn := EnvFnFromContext(ctx)
 	for _, pf := range allFlags {
-		if pf.IsArg {
-			continue
-		}
 		envKey := pf.Env
 		// skip if explicitly set to ignore
 		if envKey == "-" {
@@ -94,6 +98,7 @@ func (descr *cmdDescription) applyArgs(ctx context.Context, args []string) error
 	}
 
 	// Collect remaining flags to set.
+	// Positional args can also be set as named flag, and are then not loaded positionally.
 	var long []PrefixedFlag
 	var short []PrefixedFlag
 	var positionalRequired []PrefixedFlag
@@ -105,20 +110,20 @@ func (descr *cmdDescription) applyArgs(ctx context.Context, args []string) error
 			} else {
 				positionalOptional = append(positionalOptional, pf)
 			}
-		} else {
-			if pf.Shorthand != 0 {
-				short = append(short, pf)
-			}
-			if string(pf.Shorthand) != pf.Name {
-				long = append(long, pf)
-			}
+		}
+		if pf.Shorthand != 0 {
+			short = append(short, pf)
+		}
+		if string(pf.Shorthand) != pf.Name {
+			long = append(long, pf)
 		}
 	}
 	sort.SliceStable(long, func(i, j int) bool {
 		return long[i].Path < long[j].Path
 	})
+	// The parser searches shorthands by shorthand, not by path
 	sort.SliceStable(short, func(i, j int) bool {
-		return short[i].Path < short[j].Path
+		return short[i].Shorthand < short[j].Shorthand
 	})
 
 	remaining, err := ParseArgs(short, long, args, set)
@@ -127,52 +132,75 @@ func (descr *cmdDescription) applyArgs(ctx context.Context, args []string) error
 		return err
 	}
 
-	var remainingPositionalRequiredFlags []PrefixedFlag
-	for _, v := range positionalRequired {
-		if _, ok := descr.SeenFlags[v.Path]; !ok {
-			remainingPositionalRequiredFlags = append(remainingPositionalRequiredFlags, v)
-		}
-	}
-	var remainingPositionalOptionalFlags []PrefixedFlag
-	for _, v := range positionalOptional {
-		if _, ok := descr.SeenFlags[v.Path]; !ok {
-			remainingPositionalOptionalFlags = append(remainingPositionalOptionalFlags, v)
-		}
-	}
+	// Positional args that were already set (by env var or named flag) are skipped:
+	// the remaining command-line arguments fill the other positional args
+	// in declaration order, required args first, then optional args.
+	positionalRequired = descr.unseen(positionalRequired)
+	positionalOptional = descr.unseen(positionalOptional)
 
 	// process required args
-	if len(remaining) < len(remainingPositionalRequiredFlags) {
-		remainingPaths := make([]string, 0, len(remainingPositionalRequiredFlags))
-		for _, pf := range remainingPositionalRequiredFlags {
-			remainingPaths = append(remainingPaths, pf.Path)
+	if len(remaining) < len(positionalRequired) {
+		missing := make([]string, 0, len(positionalRequired))
+		for _, pf := range positionalRequired[len(remaining):] {
+			missing = append(missing, pf.Path)
 		}
 		return fmt.Errorf("got %d arguments, but expected %d, missing required arguments: %s",
-			len(remaining), len(remainingPositionalRequiredFlags), strings.Join(remainingPaths, ", "))
+			len(remaining), len(positionalRequired), strings.Join(missing, ", "))
 	}
-	for i := range remainingPositionalRequiredFlags {
-		if err := set(remainingPositionalRequiredFlags[i], remaining[i]); err != nil {
+	for i := range positionalRequired {
+		if err := set(positionalRequired[i], remaining[i]); err != nil {
 			return err
 		}
 	}
-	remaining = remaining[len(remainingPositionalRequiredFlags):]
+	remaining = remaining[len(positionalRequired):]
 
 	// process optional args
-	if len(remainingPositionalOptionalFlags) > 0 {
-		count := 0
-		for i := range remaining {
-			if i >= len(remainingPositionalOptionalFlags) {
-				break
-			}
-			if err := set(remainingPositionalOptionalFlags[i], remaining[i]); err != nil {
-				return err
-			}
-			count += 1
+	count := 0
+	for i := range remaining {
+		if i >= len(positionalOptional) {
+			break
 		}
-		remaining = remaining[count:]
+		if err := set(positionalOptional[i], remaining[i]); err != nil {
+			return err
+		}
+		count += 1
 	}
+	remaining = remaining[count:]
 
 	descr.RemainingArgs = remaining
 
+	return nil
+}
+
+// unseen filters out the flags that have already been set.
+func (descr *cmdDescription) unseen(flags []PrefixedFlag) []PrefixedFlag {
+	out := make([]PrefixedFlag, 0, len(flags))
+	for _, pf := range flags {
+		if _, ok := descr.SeenFlags[pf.Path]; !ok {
+			out = append(out, pf)
+		}
+	}
+	return out
+}
+
+// checkFlagCollisions returns an error if any two flags share a path,
+// or any two flags share a shorthand, since the parser would only ever find one of them.
+func checkFlagCollisions(all []PrefixedFlag) error {
+	paths := make(map[string]struct{}, len(all))
+	shorthands := make(map[uint8]string, len(all))
+	for _, pf := range all {
+		if _, ok := paths[pf.Path]; ok {
+			return fmt.Errorf("flag/arg %q is declared more than once", pf.Path)
+		}
+		paths[pf.Path] = struct{}{}
+		if pf.Shorthand == 0 {
+			continue
+		}
+		if other, ok := shorthands[pf.Shorthand]; ok {
+			return fmt.Errorf("flags %q and %q share shorthand -%s", other, pf.Path, string(pf.Shorthand))
+		}
+		shorthands[pf.Shorthand] = pf.Path
+	}
 	return nil
 }
 

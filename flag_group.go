@@ -146,72 +146,160 @@ func (g *FlagGroup) all(out *[]PrefixedFlag, prefix string) {
 	}
 }
 
-// Load adds all flags inferred from the given value to the group.
+// Load applies the defaults of the given value (see InitDefault),
+// and then adds all flags inferred from the value to the group.
+// Nil pointers to flag groups and flag values are allocated.
 func (grp *FlagGroup) Load(val reflect.Value) error {
+	if err := applyDefaults(val); err != nil {
+		return err
+	}
 	return fillGroup(grp, val)
 }
 
-func fillGroup(grp *FlagGroup, val reflect.Value) error {
-	typ := val.Type()
-	if grp.Help == nil && typ.Implements(helpType) {
-		grp.Help = val.Interface().(Help)
-	}
-	if typ.Implements(initDefaultType) {
-		val.Interface().(InitDefault).Default()
-	}
-	switch val.Kind() {
-	case reflect.Struct:
-		fieldCount := val.NumField()
-		for i := 0; i < fieldCount; i++ {
-			f := typ.Field(i)
-			if _, ok := f.Tag.Lookup("changed"); ok {
-				return fmt.Errorf("struct-tag 'changed' is not supported anymore")
-			}
-
-			tag, ok := getAsk(&f)
-			// skip ignored fields
-			if !ok || tag == "-" {
-				continue
-			}
-			v := val.Field(i)
-
-			// recurse into explicitly inline-squashed fields
-			if tag == "." {
-				if err := fillGroup(grp, v.Addr()); err != nil {
-					return fmt.Errorf("failed to load squashed flag group into group %q: %v", grp.GroupName, err)
-				}
-				continue
-			}
-
-			// recurse into sub-groups
-			if strings.HasPrefix(tag, ".") {
-				subGrp := &FlagGroup{GroupName: tag[1:]}
-				err := subGrp.Load(v.Addr())
-				if err != nil {
-					return err
-				}
-				if h, ok := f.Tag.Lookup("help"); ok {
-					subGrp.Help = inlineHelp(h)
-				}
-				grp.Entries = append(grp.Entries, subGrp)
-				continue
-			}
-
-			// handle individual fields
-			fl, err := LoadField(typ.Field(i), v)
-			if err != nil {
-				return err
-			}
-			grp.Flags = append(grp.Flags, fl)
-			continue
-		}
-		return nil
-	case reflect.Ptr:
+// derefAlloc follows pointers, allocating nil ones, to get to the value they point to.
+func derefAlloc(val reflect.Value) (reflect.Value, error) {
+	for val.Kind() == reflect.Ptr {
 		if val.IsNil() {
+			if !val.CanSet() {
+				return val, fmt.Errorf("cannot allocate nil %s: not settable", val.Type())
+			}
 			val.Set(reflect.New(val.Type().Elem()))
 		}
-		return fillGroup(grp, val.Elem())
-	default:
-		return fmt.Errorf("type %T, is not a valid group of flags", typ)
+		val = val.Elem()
 	}
+	return val, nil
+}
+
+// accessible returns the value as interface, through a pointer if addressable,
+// so that methods with pointer receivers can be found. If the value cannot be accessed
+// through reflection (i.e. it comes from an unexported field), ok is false.
+func accessible(val reflect.Value) (v any, ok bool) {
+	if val.CanAddr() {
+		val = val.Addr()
+	}
+	if !val.CanInterface() {
+		return nil, false
+	}
+	return val.Interface(), true
+}
+
+// applyDefaults applies the Default of every InitDefault in the tree of the given value, bottom-up:
+// first the flag values of a struct, then the struct itself, and then the struct that embeds it, etc.
+// Thus a struct has the final say over the defaults of its embedded groups and flag values.
+// This runs before any flag is bound to a value, so a Default may replace pointer fields freely.
+func applyDefaults(val reflect.Value) error {
+	val, err := derefAlloc(val)
+	if err != nil {
+		return err
+	}
+	if val.Kind() != reflect.Struct {
+		return fmt.Errorf("type %s, is not a valid group of flags", val.Type())
+	}
+	typ := val.Type()
+	for i := 0; i < typ.NumField(); i++ {
+		f := typ.Field(i)
+		tag, ok := getAsk(&f)
+		// skip ignored fields
+		if !ok || tag == "-" {
+			continue
+		}
+		v := val.Field(i)
+		if !v.CanAddr() {
+			return fmt.Errorf("field %q is not addressable, the command must be passed as pointer", f.Name)
+		}
+		// recurse into inline-squashed fields and sub-groups
+		if strings.HasPrefix(tag, ".") {
+			if err := applyDefaults(v); err != nil {
+				return err
+			}
+			continue
+		}
+		// individual flag/arg fields
+		fv, err := derefAlloc(v)
+		if err != nil {
+			return fmt.Errorf("field %q: %w", f.Name, err)
+		}
+		if err := callDefault(fv); err != nil {
+			return fmt.Errorf("field %q: %w", f.Name, err)
+		}
+	}
+	return callDefault(val)
+}
+
+// callDefault calls Default on the value if it implements InitDefault.
+func callDefault(val reflect.Value) error {
+	v, ok := accessible(val)
+	if !ok {
+		if reflect.PtrTo(val.Type()).Implements(initDefaultType) {
+			return fmt.Errorf("cannot apply Default of %s: value is not accessible (unexported field)", val.Type())
+		}
+		return nil
+	}
+	if d, ok := v.(InitDefault); ok {
+		d.Default()
+	}
+	return nil
+}
+
+func fillGroup(grp *FlagGroup, val reflect.Value) error {
+	val, err := derefAlloc(val)
+	if err != nil {
+		return err
+	}
+	if val.Kind() != reflect.Struct {
+		return fmt.Errorf("type %s, is not a valid group of flags", val.Type())
+	}
+	typ := val.Type()
+	if v, ok := accessible(val); ok {
+		if h, ok := v.(Help); ok && grp.Help == nil {
+			grp.Help = h
+		}
+	} else if reflect.PtrTo(typ).Implements(helpType) {
+		return fmt.Errorf("cannot use Help of %s: value is not accessible (unexported field)", typ)
+	}
+	for i := 0; i < typ.NumField(); i++ {
+		f := typ.Field(i)
+		if _, ok := f.Tag.Lookup("changed"); ok {
+			return fmt.Errorf("struct-tag 'changed' is not supported anymore")
+		}
+
+		tag, ok := getAsk(&f)
+		// skip ignored fields
+		if !ok || tag == "-" {
+			continue
+		}
+		v := val.Field(i)
+		if !v.CanAddr() {
+			return fmt.Errorf("field %q is not addressable, the command must be passed as pointer", f.Name)
+		}
+
+		// recurse into explicitly inline-squashed fields
+		if tag == "." {
+			if err := fillGroup(grp, v); err != nil {
+				return fmt.Errorf("failed to load squashed flag group into group %q: %w", grp.GroupName, err)
+			}
+			continue
+		}
+
+		// recurse into sub-groups
+		if strings.HasPrefix(tag, ".") {
+			subGrp := &FlagGroup{GroupName: tag[1:]}
+			if err := fillGroup(subGrp, v); err != nil {
+				return err
+			}
+			if h, ok := f.Tag.Lookup("help"); ok {
+				subGrp.Help = inlineHelp(h)
+			}
+			grp.Entries = append(grp.Entries, subGrp)
+			continue
+		}
+
+		// handle individual fields
+		fl, err := LoadField(f, v)
+		if err != nil {
+			return err
+		}
+		grp.Flags = append(grp.Flags, fl)
+	}
+	return nil
 }

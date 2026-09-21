@@ -31,11 +31,19 @@ type Help interface {
 
 var helpType = reflect.TypeOf((*Help)(nil)).Elem()
 
-// InitDefault can be implemented by a command or flag
+// InitDefault can be implemented by a command, flag group or flag value
 // to not rely on the user to prepare a default value,
-// and instead move the responsibility to the command or flag itself.
-// The default of a command is initialized before flags are applied.
-// A command may embed multiple sub-structures that implement Default.
+// and instead move the responsibility to the command, group or flag itself.
+//
+// Defaults are applied exactly once per implementation, before any flag is loaded
+// from env vars or args, and bottom-up: first the flag values of a struct,
+// then the struct itself, then the struct embedding it, and so on.
+// Thus a command has the final say over the defaults of its embedded groups.
+// If a Default replaces a pointer to a group or flag value, the replacement is used as-is:
+// its own Default is not applied.
+//
+// Default overwrites whatever values the command was pre-configured with,
+// unless the implementation checks for existing values.
 type InitDefault interface {
 	// Default the flags of a command.
 	Default()

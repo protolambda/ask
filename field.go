@@ -1,6 +1,7 @@
 package ask
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"net"
@@ -21,36 +22,109 @@ var ipType = reflect.TypeOf(net.IP{})
 var ipmaskType = reflect.TypeOf(net.IPMask{})
 var ipNetType = reflect.TypeOf(net.IPNet{})
 
-// LoadField loads a struct field as flag
-func LoadField(f reflect.StructField, val reflect.Value) (fl *Flag, err error) {
-	if !val.CanAddr() {
-		return
+// flagDecl is the parsed content of an "ask" struct tag of a flag or positional arg.
+type flagDecl struct {
+	// name is the long flag name (without "--"), or the arg name (without "<>" or "[]").
+	// If only a shorthand is declared, the name is the shorthand.
+	name      string
+	shorthand uint8
+	isArg     bool
+	required  bool
+}
+
+func isDeclSeparator(r rune) bool {
+	return r == ' ' || r == ','
+}
+
+// parseFlagDecl parses the flag/arg declarations of an "ask" struct tag.
+// Declarations are separated by spaces and/or commas, e.g. "--verbose -v" or "--verbose,-v".
+// Supported declarations:
+//   - "--name": long flag
+//   - "-c": shorthand flag (single character)
+//   - "<name>": required positional arg
+//   - "[name]": optional positional arg
+//
+// A name (long flag or positional arg) may be combined with one shorthand.
+func parseFlagDecl(tag string) (flagDecl, error) {
+	var d flagDecl
+	for _, k := range strings.FieldsFunc(tag, isDeclSeparator) {
+		switch {
+		case strings.HasPrefix(k, "--"):
+			if err := d.setName(k[2:], false, false); err != nil {
+				return d, err
+			}
+		case strings.HasPrefix(k, "-"):
+			if len(k) != 2 {
+				return d, fmt.Errorf("short flag %q must have a 1 char short name", k)
+			}
+			if d.shorthand != 0 {
+				return d, fmt.Errorf("cannot have two different short-flag declarations: %q and %q", string(d.shorthand), k)
+			}
+			if k[1] == '=' {
+				return d, fmt.Errorf("invalid short flag %q", k)
+			}
+			d.shorthand = k[1]
+		case strings.HasPrefix(k, "<") && strings.HasSuffix(k, ">"):
+			if err := d.setName(k[1:len(k)-1], true, true); err != nil {
+				return d, err
+			}
+		case strings.HasPrefix(k, "[") && strings.HasSuffix(k, "]"):
+			if err := d.setName(k[1:len(k)-1], true, false); err != nil {
+				return d, err
+			}
+		default:
+			return d, fmt.Errorf("invalid flag/arg declaration %q", k)
+		}
 	}
-	v, ok := getAsk(&f)
+	if d.name == "" && d.shorthand == 0 {
+		return d, errors.New("empty flag/arg declaration")
+	}
+	// use shorthand as name if name is missing
+	if d.name == "" {
+		d.name = string(d.shorthand)
+	}
+	return d, nil
+}
+
+func (d *flagDecl) setName(name string, isArg, required bool) error {
+	if d.name != "" {
+		return fmt.Errorf("cannot have different flag/arg declarations: %q and %q", d.name, name)
+	}
+	if name == "" {
+		return errors.New("flag/arg must have at least 1 char name")
+	}
+	if name[0] == '-' || strings.ContainsRune(name, '=') {
+		return fmt.Errorf("invalid flag/arg name %q", name)
+	}
+	d.name = name
+	d.isArg = isArg
+	d.required = required
+	return nil
+}
+
+// LoadField loads a struct field as flag or positional arg.
+// A nil Flag without error is returned if the field has no "ask" struct tag.
+// The field value must be addressable, and accessible through reflection (i.e. exported).
+// The current value of the field is captured as default:
+// defaults (see InitDefault) must be applied before loading, see FlagGroup.Load.
+func LoadField(f reflect.StructField, val reflect.Value) (*Flag, error) {
+	tag, ok := getAsk(&f)
 	if !ok {
-		return
+		return nil, nil
 	}
-	name := ""
-	shorthand := uint8(0)
-	deprecated := ""
-	help := ""
-	hidden := false
-	isArg := false
-	required := false
+	if !val.CanAddr() {
+		return nil, fmt.Errorf("field %q is not addressable, the command must be passed as pointer", f.Name)
+	}
+	if !val.CanInterface() {
+		return nil, fmt.Errorf("field %q is not accessible, flag fields must be exported", f.Name)
+	}
+
+	decl, err := parseFlagDecl(tag)
+	if err != nil {
+		return nil, fmt.Errorf("field %q has invalid ask declaration %q: %w", f.Name, tag, err)
+	}
+
 	env := ""
-
-	if h, ok := f.Tag.Lookup("help"); ok {
-		help = h
-	}
-
-	// refers to the new value to use
-	if d, ok := f.Tag.Lookup("deprecated"); ok {
-		deprecated = d
-	}
-	if _, ok := f.Tag.Lookup("hidden"); ok {
-		hidden = true
-	}
-
 	if v, ok := f.Tag.Lookup("env"); ok {
 		if v == "" {
 			return nil, fmt.Errorf("env key of field %s cannot be empty", f.Name)
@@ -60,65 +134,21 @@ func LoadField(f reflect.StructField, val reflect.Value) (fl *Flag, err error) {
 
 	value, err := FlagValue(f.Type, val)
 	if err != nil {
-		return nil, fmt.Errorf("failed to handle value type of field %s as flag/arg: %v", f.Name, err)
+		return nil, fmt.Errorf("failed to handle value type of field %s as flag/arg: %w", f.Name, err)
 	}
 
-	for _, k := range strings.Split(v, " ") {
-		if k == "" {
-			continue
-		}
-		if name != "" {
-			return nil, fmt.Errorf("field %q cannot have different flag/arg declarations", f.Name)
-		}
-		if strings.HasPrefix(k, "--") {
-			if len(k) < 3 {
-				return nil, fmt.Errorf("field %q long flag must have at least 1 char name", f.Name)
-			}
-			name = k[2:]
-			continue
-		}
-		if strings.HasPrefix(k, "-") {
-			if shorthand != 0 {
-				return nil, fmt.Errorf("field %q cannot have two different short-flag style declarations", f.Name)
-			}
-			if len(k) == 2 {
-				return nil, fmt.Errorf("field %q short flag must have a 1 char short name", f.Name)
-			}
-			shorthand = k[1]
-			continue
-		}
-		if len(v) < 3 {
-			return nil, fmt.Errorf("field %q positional arg must have at least 1 char name", f.Name)
-		}
-		if strings.HasPrefix(v, "<") && strings.HasSuffix(v, ">") {
-			name = v[1 : len(v)-1]
-			isArg = true
-			required = true
-			continue
-		}
-		if strings.HasPrefix(v, "[") && strings.HasSuffix(v, "]") {
-			name = v[1 : len(v)-1]
-			isArg = true
-			continue
-		}
-		return nil, fmt.Errorf("struct field %q has invalid Ask arg/flag declaration", f.Name)
-	}
-
-	// use shorthand as name if name is missing
-	if shorthand != 0 && name == "" {
-		name = string(shorthand)
-	}
+	_, hidden := f.Tag.Lookup("hidden")
 
 	return &Flag{
 		Value:      value,
-		Name:       name,
-		Shorthand:  shorthand,
+		Name:       decl.name,
+		Shorthand:  decl.shorthand,
 		Env:        env,
-		IsArg:      isArg,
-		Help:       help,
+		IsArg:      decl.isArg,
+		Help:       f.Tag.Get("help"),
 		Default:    value.String(),
-		Required:   required,
-		Deprecated: deprecated,
+		Required:   decl.required,
+		Deprecated: f.Tag.Get("deprecated"), // refers to the new value to use
 		Hidden:     hidden,
 	}, nil
 }

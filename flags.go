@@ -887,3 +887,89 @@ func (f *fixedLenBytesSlice) Type() string {
 	elemLen := f.Dest.Type().Elem().Len()
 	return fmt.Sprintf("[]bytes%d", elemLen)
 }
+
+// basicSliceValue exposes a slice of any basic-kind element type as a comma-separated flag.
+// It is used for slices of named element types (e.g. []MyID with `type MyID uint64`),
+// which cannot alias the typed slice values like Uint64SliceValue.
+type basicSliceValue struct {
+	// Dest is the addressable slice value to read and write
+	Dest reflect.Value
+}
+
+func (s *basicSliceValue) Set(val string) error {
+	parts := strings.Split(val, ",")
+	out := reflect.MakeSlice(s.Dest.Type(), len(parts), len(parts))
+	for i, p := range parts {
+		if err := setBasic(out.Index(i), p); err != nil {
+			return err
+		}
+	}
+	s.Dest.Set(out)
+	return nil
+}
+
+func (s *basicSliceValue) String() string {
+	n := s.Dest.Len()
+	parts := make([]string, n)
+	for i := 0; i < n; i++ {
+		parts[i] = formatBasic(s.Dest.Index(i))
+	}
+	return strings.Join(parts, ",")
+}
+
+func (s *basicSliceValue) Type() string {
+	return s.Dest.Type().Elem().Kind().String() + "Slice"
+}
+
+// setBasic parses the string as the basic kind of dest, and sets dest.
+func setBasic(dest reflect.Value, s string) error {
+	switch dest.Kind() {
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		v, err := strconv.ParseUint(s, 0, dest.Type().Bits())
+		if err != nil {
+			return err
+		}
+		dest.SetUint(v)
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		v, err := strconv.ParseInt(s, 0, dest.Type().Bits())
+		if err != nil {
+			return err
+		}
+		dest.SetInt(v)
+	case reflect.Float32, reflect.Float64:
+		v, err := strconv.ParseFloat(s, dest.Type().Bits())
+		if err != nil {
+			return err
+		}
+		dest.SetFloat(v)
+	case reflect.Bool:
+		v, err := strconv.ParseBool(s)
+		if err != nil {
+			return err
+		}
+		dest.SetBool(v)
+	case reflect.String:
+		dest.SetString(s)
+	default:
+		return fmt.Errorf("unsupported element kind: %s", dest.Kind())
+	}
+	return nil
+}
+
+// formatBasic formats a value of basic kind.
+func formatBasic(v reflect.Value) string {
+	switch v.Kind() {
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return strconv.FormatUint(v.Uint(), 10)
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return strconv.FormatInt(v.Int(), 10)
+	case reflect.Float32, reflect.Float64:
+		return strconv.FormatFloat(v.Float(), 'g', -1, v.Type().Bits())
+	case reflect.Bool:
+		return strconv.FormatBool(v.Bool())
+	case reflect.String:
+		return v.String()
+	default:
+		return "?"
+	}
+}

@@ -26,13 +26,13 @@ Ask is designed to make command options as reusable as possible.
 
 Struct tags:
 - `ask`: to declare a field as flag/arg.
-  - `ask:"<mainthing>"`: a positional required argument (alias: `--mainthing`)
-  - `ask:"[extrathing]`: a positional optional argument (alias: `--extrathing`)
-  - `ask:"--my-flag`: a long flag
-  - `ask:"-v`: a shorthand flag
-  - `ask:"--verbose -v"`: a long flag with shorthand
-  - `ask:".`: inline group
-  - `ask:".groupnamehere`: flag group (can be nested)
+  - `ask:"<mainthing>"`: a positional required argument (alias: `--mainthing`, env: `MAINTHING`)
+  - `ask:"[extrathing]"`: a positional optional argument (alias: `--extrathing`, env: `EXTRATHING`)
+  - `ask:"--my-flag"`: a long flag
+  - `ask:"-v"`: a shorthand flag
+  - `ask:"--verbose -v"` or `ask:"--verbose,-v"`: a long flag with shorthand
+  - `ask:"."`: inline group
+  - `ask:".groupnamehere"`: flag group (can be nested)
 - `help:"Infomation about flag here"`: define flag / flag-group usage info
 - `hidden:"any value"`: to hide a flag from usage info
 - `deprecated:"reason here"`: to mark a flag as deprecated
@@ -40,6 +40,11 @@ Struct tags:
   - `ask:"--my-flag"` automatically becomes `MY_FLAG`
   - `env:"SPECIAL_ENV_NAME"`: to load as `SPECIAL_ENV_NAME`
   - `env:"-"`: disables env, flag/arg only.
+
+Positional arguments are filled from the remaining command-line arguments in declaration order.
+A positional argument that was already set as named flag (`--mainthing=x`) or env var is skipped,
+and the remaining command-line arguments fill the next declared positional arguments.
+Like for other flags, a named flag takes precedence over an env var.
 
 Example:
 ```go
@@ -107,7 +112,7 @@ Any unparsed trailing arguments can be accessed through `ask.Args(ctx)`.
 
 ### `InitDefault`
 
-Commands can implement the `InitDefault` interface to specify non-zero flag defaults.
+Commands, flag groups and custom flag values can implement the `InitDefault` interface to specify non-zero flag defaults.
 
 ```go
 func (c *BoundCmd) Default() {
@@ -115,6 +120,10 @@ func (c *BoundCmd) Default() {
 	c.HighBound = 45
 }
 ```
+
+Defaults are applied once, before any flag is loaded from env vars or arguments, and bottom-up:
+the `Default` of a flag group runs before the `Default` of the command that embeds it,
+so the command has the final say.
 
 ### Routing sub-commands
 

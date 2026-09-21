@@ -14,6 +14,9 @@ type ApplyArg func(fl PrefixedFlag, value string) error
 // Parsing stops as soon as the first non-flag arg that is not a value to a prior flag.
 // Unrecognized flags result in an error.
 // A HelpErr is returned if a flag like `--help` or `-h` is detected.
+//
+// The sortedShort slice is ordered from low to high shorthand,
+// the sortedLong slice is ordered from low to high long flag path.
 func ParseArgs(sortedShort []PrefixedFlag, sortedLong []PrefixedFlag,
 	args []string, set ApplyArg) (remaining []string, err error) {
 	for len(args) > 0 {
@@ -53,7 +56,7 @@ func ParseArgs(sortedShort []PrefixedFlag, sortedLong []PrefixedFlag,
 func ParseLongArg(sortedFlags []PrefixedFlag, firstArg string, args []string, fn ApplyArg) (nextArgs []string, err error) {
 	nextArgs = args
 	if len(firstArg) < 2 {
-		return nil, fmt.Errorf("long-format flag to short: %q", firstArg)
+		return nil, fmt.Errorf("long-format flag too short: %q", firstArg)
 	}
 	name := firstArg[2:]
 	if len(name) == 0 || name[0] == '-' || name[0] == '=' {
@@ -95,13 +98,16 @@ func ParseLongArg(sortedFlags []PrefixedFlag, firstArg string, args []string, fn
 	}
 
 	if err := fn(fl, value); err != nil {
-		return nextArgs, fmt.Errorf("failed to apply flag %s: %q, err: %v", name, value, err)
+		return nextArgs, fmt.Errorf("failed to apply flag %s: %q, err: %w", name, value, err)
 	}
 
 	return nextArgs, nil
 }
 
-// sortedFlags is ordered from low to high shorthand string
+// parseSingleShortArg parses the first shorthand of the shorthands string,
+// and returns the shorthands that remain to be parsed, if any.
+//
+// The sortedFlags slice is ordered from low to high shorthand.
 func parseSingleShortArg(sortedFlags []PrefixedFlag, shorthands string, args []string, fn ApplyArg) (remainingShorthands string, nextArgs []string, err error) {
 	if len(shorthands) == 0 {
 		return "", nil, errors.New("no shorthand flags to parse")
@@ -112,10 +118,10 @@ func parseSingleShortArg(sortedFlags []PrefixedFlag, shorthands string, args []s
 	c := shorthands[0]
 
 	flagIndex := sort.Search(len(sortedFlags), func(i int) bool {
-		return sortedFlags[i].Shorthand < c
+		return sortedFlags[i].Shorthand >= c
 	})
 
-	if flagIndex == len(sortedFlags) {
+	if flagIndex == len(sortedFlags) || sortedFlags[flagIndex].Shorthand != c {
 		switch {
 		case c == 'h':
 			return "", nil, HelpErr
@@ -127,8 +133,8 @@ func parseSingleShortArg(sortedFlags []PrefixedFlag, shorthands string, args []s
 	fl := sortedFlags[flagIndex]
 
 	var value string
-	if len(shorthands) > 2 && shorthands[1] == '=' {
-		// '-f=arg'
+	if len(shorthands) >= 2 && shorthands[1] == '=' {
+		// '-f=arg' (or '-f=' for an empty value)
 		value = shorthands[2:]
 		remainingShorthands = ""
 	} else if flv, ok := fl.Value.(ImplicitValue); ok {
@@ -148,7 +154,7 @@ func parseSingleShortArg(sortedFlags []PrefixedFlag, shorthands string, args []s
 	}
 
 	if err := fn(fl, value); err != nil {
-		return "", nil, fmt.Errorf("failed to apply flag %s: %v", string(c), value)
+		return "", nil, fmt.Errorf("failed to apply flag %s: %q, err: %w", string(c), value, err)
 	}
 
 	return remainingShorthands, nextArgs, nil
@@ -158,7 +164,7 @@ func parseSingleShortArg(sortedFlags []PrefixedFlag, shorthands string, args []s
 // It may consume more arguments: remaining arguments to parse next are returned.
 // A HelpErr is returned when a flag is detected like `-h`.
 //
-// The sortedFlags slice is ordered from low to high shorthand string
+// The sortedFlags slice is ordered from low to high shorthand.
 func ParseShortArg(sortedFlags []PrefixedFlag, firstArg string, args []string, fn ApplyArg) (nextArgs []string, err error) {
 	if len(firstArg) == 0 {
 		return nil, errors.New("no shorthand flags to parse")
@@ -169,7 +175,7 @@ func ParseShortArg(sortedFlags []PrefixedFlag, firstArg string, args []string, f
 
 	// "shorthands" can be a series of shorthand letters of flags (e.g. "-vvv").
 	for len(shorthands) > 0 {
-		shorthands, nextArgs, err = parseSingleShortArg(sortedFlags, shorthands, args, fn)
+		shorthands, nextArgs, err = parseSingleShortArg(sortedFlags, shorthands, nextArgs, fn)
 		if err != nil {
 			return
 		}

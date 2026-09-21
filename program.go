@@ -20,7 +20,7 @@ func RunProgram(cmd Command) {
 
 	opts := []Option{
 		OnDeprecated(func(ctx context.Context, fl PrefixedFlag) error {
-			fmt.Fprintf(os.Stderr, "warning: flag %q is deprecated: %s", fl.Path, fl.Deprecated)
+			_, _ = fmt.Fprintf(os.Stderr, "warning: flag %q is deprecated: %s\n", fl.Path, fl.Deprecated)
 			return nil
 		}),
 		ShowHidden(os.Getenv("HIDDEN_OPTIONS") != ""),
