@@ -145,6 +145,34 @@ func (c *OuterCmd) Run(ctx context.Context) error {
 
 Commands can pre-configure inner commands, dynamically route, or even recurse.
 
+### Running a program
+
+`RunProgram` runs a command as the `main` function of a program, with the arguments from `os.Args[1:]`,
+and exits the process when the command completes:
+
+```go
+func main() {
+	ask.RunProgram(&MainCmd{})
+}
+```
+
+A shutdown signal (`os.Interrupt`, e.g. Ctrl-C, or `SIGTERM`, e.g. from a service manager or `kill`)
+cancels the context of the command, so it can clean up and return; `Close` still runs if the command implements `io.Closer`.
+A second shutdown signal ends the program immediately, without waiting for the command,
+e.g. when its cleanup hangs.
+
+The program ends:
+- with exit status 0 when the command succeeds or help is requested;
+- with exit status 1 when the command or its `Close` fails (the error is printed to stderr), also after a shutdown signal,
+  even if `context.Canceled` is joined to the failure;
+- by the shutdown signal when the command returns `nil` or an error that wraps nothing but `context.Canceled`
+  (such as `ctx.Err()`) after it and `Close` does not fail, or upon a second shutdown signal, as without the signal handling,
+  so the caller sees that the program was stopped early:
+  a shell stops a script upon Ctrl-C, and a batch runner does not take the work for done.
+  On Unix the signal is raised again (a shell reports status 130 for Ctrl-C, 143 for `SIGTERM`).
+  Elsewhere, as PID 1 (e.g. in a container without an init), or if the signal was ignored when the program started,
+  the program exits with 128 plus the signal number instead (1 on Plan 9).
+
 ## `Help`
 
 - Commands and flag groups can implement the `Help() string` interface to output (dynamic) usage information.

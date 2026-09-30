@@ -34,6 +34,9 @@
 // - ImplicitValue
 //
 // Commands are executed with Run.
+// RunProgram runs a command as the main function of a program:
+// it cancels the command upon a shutdown signal (os.Interrupt or SIGTERM), and exits the process when it completes,
+// by that signal if the command stopped because of it, or immediately upon a second signal.
 //
 // A running command can start sub-command(s) by calling Run within the same context.
 // When `--help` is passed as arg, the actual command handler does not Run,
